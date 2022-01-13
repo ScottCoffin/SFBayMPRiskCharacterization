@@ -1,0 +1,514 @@
+---
+title: "SF Bay Microplastics Probability Distributions"
+author: "Scott Coffin"
+date: "1/13/2021"
+output:   
+  html_document:
+    code_folding: hide
+    theme: journal
+    toc: yes
+    toc_float: yes
+    toc_depth: 6
+    number_sections: true
+    includes:
+     # after_body: footer.html
+  word_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width=12, fig.height=8, fig.path='Figs/',
+                      warning=FALSE, message=FALSE,time_it = TRUE) #report
+```
+
+The objective of this project is to determine site-specific SSDs for plastic particles in the SF Bay. Particle distribution data for plastic particles is from Dr. Diana Lin at SFEI.
+
+#library
+```{r}
+library(tidyverse)
+library(ssdtools)
+library(fitdistrplus)
+library(rbin)
+```
+
+
+# SF Bay Data
+## Import data
+```{r}
+#site-specific distribution data
+#SF bay data
+distributions <- readxl::read_xlsx("data/2020-09-08_MooreParticleData.xlsx") %>%
+  mutate(Size_um = Length.mm) %>% 
+  mutate(matrix = case_when(grepl("sediment", MatrixName) ~ "sediment",
+                            grepl("runoff", MatrixName) ~ "runoff",
+                            grepl("samplewater", MatrixName) ~ "samplewater",
+                            grepl("tissue", MatrixName) ~ "tissue",
+                            grepl("blankwater", MatrixName) ~ "blankwater",
+                            grepl("effluent", MatrixName) ~ "effluent")) %>% 
+  mutate(lower_size_limit_um = as.numeric(case_when(grepl(">125",MatrixName) ~ "125",
+                                                 grepl(">355",MatrixName) ~ "355",
+                                                 grepl(">500",MatrixName) ~ "500",
+                                                 grepl(">1",MatrixName) ~ "1000"))) %>%
+  mutate(upper_size_limit_um = as.numeric(case_when(grepl("125 um",MatrixName) ~ "125",
+                                                 grepl("355 um",MatrixName) ~ "355",
+                                                 grepl("500 um",MatrixName) ~ "500",
+                                                 grepl("1000 um",MatrixName) ~ "1000"))) %>% 
+  mutate_if(is.character,  as.factor)
+
+skimr::skim(distributions)
+```
+
+## Modelling
+### Visualization
+```{r}
+distributions %>% 
+  ggplot(aes(x = Size_um)) +
+  geom_histogram() +
+  scale_x_continuous(name = "Size (um)",breaks = scales::trans_breaks("log10", function(x) 10^x),labels = comma_signif, trans = "log10")+
+  theme_minimal()
+```
+We can see here that they do not exactly follow an alpha distribution, but this is likely due to detection limits.
+
+```{r}
+distributions %>% 
+  group_by(matrix) %>% 
+  summarize(count = n()) %>% 
+  mutate(fraction_total = count /  sum(count)) %>% 
+  ggplot(aes(x = matrix, y = fraction_total, fill = matrix)) +
+  geom_col() +
+  labs(title = "Relative Fraction of particles by matrix") +
+  theme_minimal()
+
+```
+
+#### Average Density
+```{r eval=FALSE, include=FALSE}
+library(skimr)
+distributions %>% 
+  mutate(density = case_when(polymer == "PE" ~ 0.91,
+                             polymer == "PET" ~ 1.38,
+                             polymer == "PS" ~ 1.04)) %>% 
+   #filter(Size_um >150
+    #     & Size_um <1000) %>% 
+  skim()
+```
+
+
+### Determine maximum size for which the dataset
+The maximum size for which the dataset was valid is determined using a theoretical particle
+detection limit (PDL). 
+
+1. Data was plotted using only the values between the minimum and the first non-detect.  A log-log plot for size vs abundance (#) is made.
+2. A linear trendline was fitted, and the parameters for the function y = a*x + b were
+obtained
+3. Assuming y = 0 (equals 1 particle since 10^0 = 1), a value for x (the PDL) was calculated
+4. Data were plotted using only the values between the minimum and the calculated PDL
+5. If more data were included than in step 1, the procedure was repeated.
+6. Once the PDL does not change anymore, only data between the minimum and PDL were
+included for the final trendline fitting.
+```{r eval=FALSE, include=FALSE}
+#first split dataset into polymers
+
+```
+
+```{r}
+sample_water <- distributions %>% 
+  filter(matrix == "samplewater") %>% 
+  group_by(Size_um, lower_size_limit_um, upper_size_limit_um) %>% 
+  summarize(abundance = n())
+
+sample_water %>% 
+  ggplot(aes(x = Size_um, y = abundance)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  scale_x_log10() +
+  scale_y_log10()
+```
+
+```{r}
+distributions %>% 
+  filter(matrix == "samplewater") %>%
+  filter(MorphologicalCategory == "Fragment") %>% 
+  ggplot(aes(x = Size_um)) +
+  geom_histogram(alpha = 0.5) +
+ # geom_smooth(method = "lm") +
+  scale_x_log10() +
+  scale_y_log10()
+```
+
+```{r}
+distributions %>% 
+  #filter(matrix == "samplewater") %>%
+  #filter(MorphologicalCategory == "Fragment") %>% 
+  ggplot(aes(x = Size_um, fill = matrix)) +
+  geom_histogram(alpha = 0.5) +
+ # geom_smooth(method = "lm") +
+  scale_x_log10() +
+  scale_y_log10()
+```
+
+
+We need a better way of binning data.
+
+Winsorized binning is similar to equal length binning except that both tails are cut off to obtain a smooth binning result. This technique is often used to remove outliers during the data pre-processing stage. For Winsorized binning, the Winsorized statistics are computed first. After the minimum and maximum have been found, the split points are calculated the same way as in equal length binning.
+
+
+#### SampleWater
+```{r}
+#determine lower and upper end based on maximum R^2 (iteration required)
+sample_water_cut <- distributions %>% 
+  #filter(lower_size_limit_um == 125) %>% 
+ # filter(MorphologicalCategory == "Fragment") %>% 
+  filter(matrix == "samplewater") %>% 
+  #filter(Size_um >1 & Size_um  <1000) %>% 
+  drop_na(Size_um)
+
+#cut into bins
+#sample_waterwinsors <- rbin_winsorize(sample_water_cut, polymer, Size_um, 20)
+sample_waterwinsors <- rbin_winsorize(sample_water_cut, predictor = Length.mm, Length.mm, 15, winsor_rate = 0.05)
+#save as dataframe
+sample_waterbinned <- as.data.frame(sample_waterwinsors$bins) %>% 
+  dplyr::select(c(cut_point, bin_count, bin_prop))
+
+#strip of characters
+sample_waterbinned$cut <- gsub("[^0-9.-]","",sample_waterbinned$cut_point)
+ #convert to numeric
+sample_waterbinned2 <- sample_waterbinned %>% 
+  mutate(cut.numeric = as.numeric(cut)) %>% 
+  mutate(logAbundance = log10(bin_prop),
+         logSize = log10(cut.numeric))
+
+## model
+library(ggpmisc)
+my.formula <- y ~ x
+p <- sample_waterbinned2 %>% 
+  #filter(logAbundance < -1.0) %>% 
+  ggplot(aes(x = logSize, y = logAbundance)) +
+   geom_smooth(method = "lm", se=FALSE, color="black", formula = my.formula) +
+   stat_poly_eq(formula = my.formula, 
+                aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+                parse = TRUE) +         
+   geom_point() +
+  xlab("Log (Size, um)") +
+  ylab("Log (Relative abundance, %)")
+p
+```
+
+
+##### Remove outliers
+```{r}
+sample_waterlin <- lm(logAbundance ~ logSize, data = sample_waterbinned2)
+cooksd <- cooks.distance(sample_waterlin)
+plot(cooksd, pch="*", cex=2, main="Influential Obs by Cooks distance")  # plot cook's distance
+abline(h = 4*mean(cooksd, na.rm=T), col="red")  # add cutoff line
+text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=T),names(cooksd),""), col="red")  # add labels
+```
+Extract outliers
+```{r}
+influential <- as.numeric(names(cooksd)[(cooksd > 4*mean(cooksd, na.rm=T))])  # influential row numbers
+head(sample_waterbinned2[influential, ])  # influential observations.
+```
+```{r}
+trimmedsample_water <- sample_waterbinned2 %>% 
+  filter(cut_point != c(">= 7.49026666666667")
+) %>% 
+  mutate(polymer = "sample_water")
+
+sample_waterlin <- lm(logAbundance ~ logSize, data = trimmedsample_water)
+sample_waterlin.summ <- summary(sample_waterlin)
+sample_waterlin.summ
+```
+```{r}
+ggplot(data = trimmedsample_water, aes(x = logSize, y = logAbundance)) +
+   geom_smooth(method = "lm", se=FALSE, color="black", formula = my.formula) +
+   stat_poly_eq(formula = my.formula, 
+                aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+                parse = TRUE) +         
+   geom_point() +
+  xlab("Log (Size, um)") +
+  ylab("Log (Relative abundance, %)")
+```
+
+### Effluent
+```{r}
+#determine lower and upper end based on maximum R^2 (iteration required)
+effluent_cut <- distributions %>% 
+  #filter(lower_size_limit_um == 125) %>% 
+ # filter(MorphologicalCategory == "Fragment") %>% 
+  filter(matrix == "effluent") %>% 
+  #filter(Size_um >1 & Size_um  <1000) %>% 
+  drop_na(Size_um)
+
+#cut into bins
+#effluentwinsors <- rbin_winsorize(effluent_cut, polymer, Size_um, 20)
+effluentwinsors <- rbin_winsorize(effluent_cut, predictor = Length.mm, Length.mm, 15, winsor_rate = 0.05)
+#save as dataframe
+effluentbinned <- as.data.frame(effluentwinsors$bins) %>% 
+  dplyr::select(c(cut_point, bin_count, bin_prop))
+
+#strip of characters
+effluentbinned$cut <- gsub("[^0-9.-]","",effluentbinned$cut_point)
+ #convert to numeric
+effluentbinned2 <- effluentbinned %>% 
+  mutate(cut.numeric = as.numeric(cut)) %>% 
+  mutate(logAbundance = log10(bin_prop),
+         logSize = log10(cut.numeric))
+
+## model
+library(ggpmisc)
+my.formula <- y ~ x
+p <- effluentbinned2 %>% 
+  #filter(logAbundance < -1.0) %>% 
+  ggplot(aes(x = logSize, y = logAbundance)) +
+   geom_smooth(method = "lm", se=FALSE, color="black", formula = my.formula) +
+   stat_poly_eq(formula = my.formula, 
+                aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+                parse = TRUE) +         
+   geom_point() +
+  xlab("Log (Size, um)") +
+  ylab("Log (Relative abundance, %)")
+p
+```
+
+
+##### Remove outliers
+```{r}
+effluentlin <- lm(logAbundance ~ logSize, data = effluentbinned2)
+cooksd <- cooks.distance(effluentlin)
+plot(cooksd, pch="*", cex=2, main="Influential Obs by Cooks distance")  # plot cook's distance
+abline(h = 4*mean(cooksd, na.rm=T), col="red")  # add cutoff line
+text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=T),names(cooksd),""), col="red")  # add labels
+```
+Extract outliers
+```{r}
+influential <- as.numeric(names(cooksd)[(cooksd > 4*mean(cooksd, na.rm=T))])  # influential row numbers
+head(effluentbinned2[influential, ])  # influential observations.
+```
+```{r}
+trimmedeffluent <- effluentbinned2 %>% 
+  filter(cut_point != c(">= 3.56564666666666")
+) %>% 
+  mutate(polymer = "effluent")
+
+effluentlin <- lm(logAbundance ~ logSize, data = trimmedeffluent)
+effluentlin.summ <- summary(effluentlin)
+effluentlin.summ
+```
+```{r}
+ggplot(data = trimmedeffluent, aes(x = logSize, y = logAbundance)) +
+   geom_smooth(method = "lm", se=FALSE, color="black", formula = my.formula) +
+   stat_poly_eq(formula = my.formula, 
+                aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+                parse = TRUE) +         
+   geom_point() +
+  xlab("Log (Size, um)") +
+  ylab("Log (Relative abundance, %)")
+```
+### runoff
+```{r}
+#determine lower and upper end based on maximum R^2 (iteration required)
+runoff_cut <- distributions %>% 
+  #filter(lower_size_limit_um == 125) %>% 
+ # filter(MorphologicalCategory == "Fragment") %>% 
+  filter(matrix == "runoff") %>% 
+  #filter(Size_um >1 & Size_um  <1000) %>% 
+  drop_na(Size_um)
+
+#cut into bins
+#runoffwinsors <- rbin_winsorize(runoff_cut, polymer, Size_um, 20)
+runoffwinsors <- rbin_winsorize(runoff_cut, predictor = Length.mm, Length.mm, 15, winsor_rate = 0.05)
+#save as dataframe
+runoffbinned <- as.data.frame(runoffwinsors$bins) %>% 
+  dplyr::select(c(cut_point, bin_count, bin_prop))
+
+#strip of characters
+runoffbinned$cut <- gsub("[^0-9.-]","",runoffbinned$cut_point)
+ #convert to numeric
+runoffbinned2 <- runoffbinned %>% 
+  mutate(cut.numeric = as.numeric(cut)) %>% 
+  mutate(logAbundance = log10(bin_prop),
+         logSize = log10(cut.numeric))
+
+## model
+library(ggpmisc)
+my.formula <- y ~ x
+p <- runoffbinned2 %>% 
+  #filter(logAbundance < -1.0) %>% 
+  ggplot(aes(x = logSize, y = logAbundance)) +
+   geom_smooth(method = "lm", se=FALSE, color="black", formula = my.formula) +
+   stat_poly_eq(formula = my.formula, 
+                aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+                parse = TRUE) +         
+   geom_point() +
+  xlab("Log (Size, um)") +
+  ylab("Log (Relative abundance, %)")
+p
+```
+
+
+##### Remove outliers
+```{r}
+runofflin <- lm(logAbundance ~ logSize, data = runoffbinned2)
+cooksd <- cooks.distance(runofflin)
+plot(cooksd, pch="*", cex=2, main="Influential Obs by Cooks distance")  # plot cook's distance
+abline(h = 4*mean(cooksd, na.rm=T), col="red")  # add cutoff line
+text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=T),names(cooksd),""), col="red")  # add labels
+```
+Extract outliers
+```{r}
+influential <- as.numeric(names(cooksd)[(cooksd > 4*mean(cooksd, na.rm=T))])  # influential row numbers
+head(runoffbinned2[influential, ])  # influential observations.
+```
+```{r}
+trimmedrunoff <- runoffbinned2 %>% 
+  filter(cut_point != c(">= 4.35323333333333")
+) %>% 
+  mutate(polymer = "runoff")
+
+runofflin <- lm(logAbundance ~ logSize, data = trimmedrunoff)
+runofflin.summ <- summary(runofflin)
+runofflin.summ
+```
+```{r}
+ggplot(data = trimmedrunoff, aes(x = logSize, y = logAbundance)) +
+   geom_smooth(method = "lm", se=FALSE, color="black", formula = my.formula) +
+   stat_poly_eq(formula = my.formula, 
+                aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+                parse = TRUE) +         
+   geom_point() +
+  xlab("Log (Size, um)") +
+  ylab("Log (Relative abundance, %)")
+```
+
+### Sediment
+```{r}
+#determine lower and upper end based on maximum R^2 (iteration required)
+sediment_cut <- distributions %>% 
+  #filter(lower_size_limit_um == 125) %>% 
+ # filter(MorphologicalCategory == "Fragment") %>% 
+  filter(matrix == "sediment") %>% 
+  #filter(Size_um >1 & Size_um  <1000) %>% 
+  drop_na(Size_um)
+
+#cut into bins
+#sedimentwinsors <- rbin_winsorize(sediment_cut, polymer, Size_um, 20)
+sedimentwinsors <- rbin_winsorize(sediment_cut, predictor = Length.mm, Length.mm, 15, winsor_rate = 0.05)
+#save as dataframe
+sedimentbinned <- as.data.frame(sedimentwinsors$bins) %>% 
+  dplyr::select(c(cut_point, bin_count, bin_prop))
+
+#strip of characters
+sedimentbinned$cut <- gsub("[^0-9.-]","",sedimentbinned$cut_point)
+ #convert to numeric
+sedimentbinned2 <- sedimentbinned %>% 
+  mutate(cut.numeric = as.numeric(cut)) %>% 
+  mutate(logAbundance = log10(bin_prop),
+         logSize = log10(cut.numeric))
+
+## model
+library(ggpmisc)
+my.formula <- y ~ x
+p <- sedimentbinned2 %>% 
+  #filter(logAbundance < -1.0) %>% 
+  ggplot(aes(x = logSize, y = logAbundance)) +
+   geom_smooth(method = "lm", se=FALSE, color="black", formula = my.formula) +
+   stat_poly_eq(formula = my.formula, 
+                aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+                parse = TRUE) +         
+   geom_point() +
+  xlab("Log (Size, um)") +
+  ylab("Log (Relative abundance, %)")
+p
+```
+
+
+##### Remove outliers
+```{r}
+sedimentlin <- lm(logAbundance ~ logSize, data = sedimentbinned2)
+cooksd <- cooks.distance(sedimentlin)
+plot(cooksd, pch="*", cex=2, main="Influential Obs by Cooks distance")  # plot cook's distance
+abline(h = 4*mean(cooksd, na.rm=T), col="red")  # add cutoff line
+text(x=1:length(cooksd)+1, y=cooksd, labels=ifelse(cooksd>4*mean(cooksd, na.rm=T),names(cooksd),""), col="red")  # add labels
+```
+Extract outliers
+```{r}
+influential <- as.numeric(names(cooksd)[(cooksd > 4*mean(cooksd, na.rm=T))])  # influential row numbers
+head(sedimentbinned2[influential, ])  # influential observations.
+```
+```{r}
+trimmedsediment <- sedimentbinned2 %>% 
+  filter(cut_point != c(">= 4.58422666666667")
+) %>% 
+  mutate(polymer = "sediment")
+
+sedimentlin <- lm(logAbundance ~ logSize, data = trimmedsediment)
+sedimentlin.summ <- summary(sedimentlin)
+sedimentlin.summ
+```
+```{r}
+ggplot(data = trimmedsediment, aes(x = logSize, y = logAbundance)) +
+   geom_smooth(method = "lm", se=FALSE, color="black", formula = my.formula) +
+   stat_poly_eq(formula = my.formula, 
+                aes(label = paste(..eq.label.., ..rr.label.., sep = "~~~")), 
+                parse = TRUE) +         
+   geom_point() +
+  xlab("Log (Size, um)") +
+  ylab("Log (Relative abundance, %)")
+```
+
+
+
+### Compare individual and all combined
+```{r}
+names <- c("SamplWater", "Effluent", "Runoff", "Sediment")
+
+preds <- c(sample_waterlin$coefficients[2], effluentlin$coefficients[2], runofflin$coefficients[2], sedimentlin$coefficients[2])
+
+stderrors <- c(sample_waterlin.summ$coefficients[2,2], effluentlin.summ$coefficients[2,2], runofflin.summ$coefficients[2,2], sedimentlin.summ$coefficients[2,2])
+
+R2 <- c(sample_waterlin.summ$r.squared, effluentlin.summ$r.squared, runofflin.summ$r.squared, sedimentlin.summ$r.squared)
+
+p.values <- c(sample_waterlin.summ$coefficients[2,4], effluentlin.summ$coefficients[2,4], runofflin.summ$coefficients[2,4], sedimentlin.summ$coefficients[2,4])
+
+summary <- tibble(names,preds, stderrors, R2, p.values)
+write.csv(summary,"output/data/SFEI_summary_table.csv")
+summary
+
+summary %>% 
+  ggplot(aes(x = names, y = preds, fill = R2)) +
+  geom_col() +
+  geom_errorbar(aes(xmin = stderrors, xmax = stderrors)) +
+  ylim(c(0, -2))
+  
+```
+
+
+### Fit distributions
+The following section is incomplete.
+
+```{r eval=FALSE, include=FALSE}
+#beta test with one polymer
+PS <- distributions %>% 
+  filter(PlasticType == "Polystyrene")
+
+descdist(PS$Size_um, boot = 1000)
+```
+```{r eval=FALSE, include=FALSE}
+#fit log-normal distribution
+lnorm <- fitdist(PS$Size_um, "lnorm")
+summary(lnorm)
+#fit gamma distribution
+gamma <- fitdist(PS$Size_um, "gamma")
+summary(gamma)
+
+par(mfrow = c(2,2))
+plot.legend <- c("lognormal", "gamma")
+denscomp(list(lnorm, gamma), legendtext = plot.legend)
+qqcomp(list(lnorm, gamma), legendtext = plot.legend)
+cdfcomp(list(lnorm, gamma), legendtext = plot.legend)
+ppcomp(list(lnorm, gamma), legendtext = plot.legend)
+```
+Which distributions fits the data best?
+```{r eval=FALSE, include=FALSE}
+gofstat(list(lnorm, gamma), fitnames = plot.legend)
+```
