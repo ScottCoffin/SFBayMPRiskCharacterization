@@ -42,7 +42,7 @@ library(ggsci)
 # Hazard Concentration and Alignment Parameters
 ```{r}
 ###### Choose concentration alignment parameters####
-alpha.marine = 2.07 #table s4 from Kooi et al 2021 for marine surface water. length
+alpha.marine = 1.89 #based on SFEI dataset
 alpha.freshwater = 2.64 #table s4 from Kooi et al 2021 for freshwater surface water. length
 
 x2D_set = 5000 #100 #upper size range (microns)
@@ -60,15 +60,15 @@ Threshold4 = 89.9 / AF
 
 #Food dilution thresholds (particles/L aligned to 1-5,000 um)
 Threshold1_food = 0.34 / AF
-Threshold2_food = 5.2 / AF
-Threshold3_food = 21.8 / AF
-Threshold4_food = 89.9 / AF
+Threshold2_food = 3.0 / AF
+Threshold3_food = 5.0 / AF
+Threshold4_food = 34 / AF
 
 #Oxidative stress thresholds (particles/L aligned to 1-5,000 um)
-Threshold1_oxidative.stress = 35.3 / AF
-Threshold2_oxidative.stress = 246.2 / AF
-Threshold3_oxidative.stress = 1268.9 / AF
-Threshold4_oxidative.stress = 4796.8 / AF
+Threshold1_oxidative.stress = 60 / AF
+Threshold2_oxidative.stress = 320 / AF
+Threshold3_oxidative.stress = 890 / AF
+Threshold4_oxidative.stress = 4100 / AF
 ```
 
 ```{r Theme, include=FALSE}
@@ -196,11 +196,13 @@ exceedance <- dfSFEI_exceedance  %>%
 exceedance
 ```
 #### Sensitivity Analysis based on Alignments
-Table S4 from Kooi et al (2021) includes the mean +- standard deviation for power law exponents. To test the sensitivity of this risk characterization based on alignments, a range of power law exponents for particle length are used within the upper and lower 99% of the data from which the power law exponent was derived. For marine surface water, the alpha value of 2.07 has a standard deviation of 0.03 (Kooi et al 2021). The mean plus or minus one, two, and three standard deviations are used to calculate risk exceedances to test sensitivity.
+<!-- Table S4 from Kooi et al (2021) includes the mean +- standard deviation for power law exponents. To test the sensitivity of this risk characterization based on alignments, a range of power law exponents for particle length are used within the upper and lower 99% of the data from which the power law exponent was derived. For marine surface water, the alpha value of 2.07 has a standard deviation of 0.03 (Kooi et al 2021). The mean plus or minus one, two, and three standard deviations are used to calculate risk exceedances to test sensitivity. -->
+
+probability_distributions.Rmd determines the size power law for marine surface waters in SF Bay of 1.89 +- 0.084 which is used to estiamte the uncertainty here
 
 ##### Align
 ```{r}
-alpha.marine.sd <- 0.03
+alpha.marine.sd <- 0.084
 alpha.marine.plus.one <- alpha.marine + alpha.marine.sd
 alpha.marine.plus.two <- alpha.marine + (2 * alpha.marine.sd)
 alpha.marine.plus.three <- alpha.marine + (3 * alpha.marine.sd)
@@ -266,7 +268,7 @@ sfBayECDF_sensitivity <- sensitivity %>%
   ggplot() +
  # stat_ecdf(aes(x = value, color = name),
   #          geom = "point", size = 1, alpha = 0.5) +
-  stat_ecdf(aes(x = value, color = name),geom = "step", linetype = 'solid', alpha = 0.7, size = 2.5) +
+  stat_ecdf(aes(x = value, color = name),geom = "step", linetype = 'solid', alpha = 0.7, size = 9) +
   #color
   scale_color_manual(name = "Alignment Uncertanties",
                      values = c("Conc" = "#e8ffff",
@@ -322,6 +324,75 @@ sfBayECDF_sensitivity <- sensitivity %>%
 sfBayECDF_sensitivity
 ```
 
+##### Manta vs. Grab
+```{r}
+#ECDF by System
+sfBayECDF_sensitivity <- sensitivity %>% 
+  filter(source == "SFEI") %>% 
+  filter(sample.matrix.specific == "surface water") %>% 
+  #just select concentrations
+  #dplyr::select(c(Conc, conc.plus1, conc.plus2, conc.plus3, conc.minus1, conc.minus2, conc.minus3)) %>% 
+  #make long data
+ # pivot_longer(everything()) %>% 
+  #mutate(name = as.factor(name)) %>% 
+  ggplot() +
+ # stat_ecdf(aes(x = value, color = name),
+  #          geom = "point", size = 1, alpha = 0.5) +
+  stat_ecdf(aes(x = Conc, color = Sampling.apparatus),geom = "step", linetype = 'solid', alpha = 0.7, size = 2.5) +
+  #color
+  # scale_color_manual(name = "Alignment Uncertanties",
+  #                    values = c("Conc" = "#e8ffff",
+  #                               "conc.minus1" = "#bfe6ff",
+  #                               "conc.plus1" = "#bfe6ff",
+  #                               "conc.minus2" = "#8cd3ff",
+  #                               "conc.plus2" = "#8cd3ff",
+  #                               "conc.minus3" = "#009dff",
+  #                               "conc.plus3" = "#009dff"),
+  #                    labels = c("Mean", 
+  #                               "68th Percentile",
+  #                               "68th Percentile",
+  #                               "95th Percentile",
+  #                               "95th Percentile",
+  #                               "99.7th Percentile",
+  #                               "99.7th Percentile")) +
+  # ##Food Dilution thresholds
+  geom_vline(xintercept = Threshold1_food, linetype = 'dashed', color = "#66a182", size = 1.3) +
+  geom_vline(xintercept = Threshold4_food, linetype = 'dashed', 
+             color = "#d1495b",
+             size = 1.3) +
+  geom_text(label = "Food Dilution T1", color = "#66a182" , x = Threshold1_food, y = 0.15, size = 6)+
+   geom_text(label = "Food Dilution T4", color = "#d1495b", 
+            x = Threshold4_food,
+            y = 0.25, size = 6)+
+  ###Oxidative Stress thresholds
+  geom_vline(xintercept = Threshold1_oxidative.stress, linetype = 'dashed',
+             color = "#66a182",#"#00798c",
+             size = 1.3) +
+  geom_vline(xintercept = Threshold4_oxidative.stress, linetype = 'dashed',
+             color = "#d1495b",
+             size = 1.3) +
+  geom_text(label = "Oxidative Stress T1", color = "#66a182",#'#edae49',
+            x = Threshold1_oxidative.stress - 0.8 * Threshold1_oxidative.stress, 
+            y = 0.45, size = 6) +
+  geom_text(label = "Oxidative Stress T4", color = "#d1495b", x =
+              Threshold4_oxidative.stress - 0.8 * Threshold4_oxidative.stress, 
+            y = 0.55, size = 6)+
+    ylab("Cumulative Density") +
+  xlab("Particles/L") +
+  #xlab(paste0("Particles/L (" ,x1D_set, " to ", x2D_set, "um)"))+
+  scale_y_continuous(labels = scales::percent)+
+  coord_trans(x = "log10") +
+  scale_x_continuous(breaks = scales::trans_breaks("log10", function(x) 10^x),labels = comma_signif)+
+  #annotation_logticks(sides = "b")+ #log scale rick marks on bottom
+  theme.type #+
+ # theme(legend.title = element_blank(),
+  #      legend.position = "none")
+  #labs(title = "Global Surface Water Marine Microplastics Concentrations",
+   #    subtitle = paste("Particles/L corrected to:",x1D_set, "to", x2D_set, "um"),
+    #   caption = paste("Concentration data from Adams et al (2019): 23 studies, 57 sampling locations, n = 377; corrected for size ranges. Alpha = ",alpha))
+ 
+sfBayECDF_sensitivity
+```
 
 ### Risk Characterization Histogram (SFBay)
 ```{r}
@@ -367,7 +438,7 @@ dfSFEI_exceedance %>%
 ### ECDF (SF Bay)
 
 ```{r}
-vals <- c("Unaligned" = "white", "Aligned" = "deepskyblue")
+vals <- c("Unaligned" = "black", "Aligned" = "deepskyblue")
 
 #ECDF by System
 sfBayECDF <- sfBay_new %>% 
@@ -431,7 +502,7 @@ sfBayECDF
 ```{r}
 ggsave(plot =sfBayECDF,
        filename = "sfBayECDF.jpeg",
-       path = ".output/", 
+       path = ".output/figures/", 
        width = 10, height = 6, units = "in",
        bg = "white",
        dpi = 300)
