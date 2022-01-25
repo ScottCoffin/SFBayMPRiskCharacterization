@@ -118,6 +118,14 @@ sfBay <- read.csv("data/SFBayData.csv", na.strings = "NA", stringsAsFactors = TR
 ```
 
 
+## Plastic particle correction
+10 particles were analyzed for every color/morphology combo. 68% of particles analyzed by Raman/FTIR were plastic in surface water and 23% in fish samples were plastic.
+```{r}
+
+```
+
+
+# Data Preparation
 ## Size-based Correction
 Given an upper limit (UL) and lower limit (LL) of the measured and default size range, a dimensionless correction factor ($CF_{meas}$) for measured environmental concentrations may be calculated, which rescales the measured number concentrations for a certain size range to the number concentration for the microplastics default (D) size range (e.g. 1 to 5,000 um) (Koelmans et al 2020). Coefficients for the environmental-specific compartment for the power law distribution for length (L) with slope $\alpha_L$ is from Table S4 of Kooi et al (2021). 
 
@@ -141,7 +149,7 @@ CFfnx = function(a = alpha, #default alpha from Koelmans et al (2020)
 
 
 # correct aquatic concentrations for SF Bay
-sfBay_new <- sfBay %>% 
+sfBay_aligned <- sfBay %>% 
   mutate(CF = case_when(
     System == "Estuary" ~ CFfnx(a = alpha.marine, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
    is.na(System) ~ CFfnx(a = alpha.freshwater, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set))) %>%  #create new column with correction factor 
@@ -163,8 +171,50 @@ sfBay_new <- sfBay %>%
   mutate_if(is.character, as.factor)
 ```
 
-### SFBay Exceedances
+
+
+## Wet/Dry Annotation
+Data reported in Zhu et al (2021) are not annotated with wet/dry, however data from Sutton et al (2019) are. We could match these based on sampleID...
 ```{r}
+sfnotBlankCorrected <- read.csv("data/SFEI_notBlankCorrected.csv", na.strings = "NA", stringsAsFactors = TRUE) %>%
+  rename(sampleID = Sample.ID)
+```
+
+...or we could annotate samples taken between November and March as wet and August-September as dry based on the reporting in this spreadsheet. The grab samples are also paired with the manta samples by ID, so we need to split and recombine lengthwise.
+
+## Manta/Grab split % recombine
+```{r}
+sfBay_aligned <- sfBay_aligned %>% 
+ mutate(season = case_when(grepl("Nov|Dec|Jan|Feb|Mar", sampleID, ignore.case = TRUE) ~ "wet",
+                            grepl("Aug|Sep", sampleID, ignore.case = TRUE) ~ "dry"))
+  
+#split manta from grabs
+sfBayManta <- sfBay_aligned %>% 
+  #take out manta only
+  filter(Sampling.apparatus == "Manta Trawl") %>% 
+  #extract string before space
+  mutate(sampleIDSimple = sub(" .*", "", sampleID))
+
+#extract grab sample only
+sfBayGrab <- sfBay_aligned %>% 
+  filter(Sampling.apparatus == "1-L grab") %>% 
+  #remove extraneous info 
+  mutate(sampleIDSimple = sampleID, 
+         particle.L.master_grab = particle.L.master,
+         unaligned.particle.L.master_grab = unaligned.particle.L.master,
+         CF_grab = CF) %>% 
+  select(c(sampleIDSimple, particle.L.master_grab, unaligned.particle.L.master_grab, CF_grab))
+
+#recombine manta and grab lengthwise
+#sfBay_new <- left_join(sfBayManta, sfBayGrab, by = "sampleIDSimple")
+```
+
+
+# SFBay Exceedances
+```{r}
+######REMOVE IF FIXING JOIN ABOVE!!!###
+sfBay_new <- sfBay_aligned
+
 #make new dataframe to plot both histograms together
 sampleSimpleSFEI <- sfBay_new %>%
   filter(source == "SFEI") %>% 
@@ -393,6 +443,59 @@ sfBayECDF_sensitivity <- sensitivity %>%
  
 sfBayECDF_sensitivity
 ```
+##### Wet Vs Dry
+Note that grab samples don't have dates so can't annotate wet/dry!
+```{r}
+#ECDF by System
+sfBayECDF_wetDry <- sfBay_new %>% 
+  filter(source == "SFEI") %>% 
+  filter(sample.matrix.specific == "surface water"#,
+         #Sampling.apparatus == "Manta Trawl"
+         ) %>% 
+  ggplot(aes(color = interaction(season, Sampling.apparatus, sep = "-"))) +
+  #aligned
+  stat_ecdf(aes(x = particle.L.master),geom = "step", linetype = 'solid', alpha = 0.7, size = 2.5) +
+  #unaligned
+  #stat_ecdf(aes(x = unaligned.particle.L.master),geom = "step", linetype = 'solid', alpha = 0.2, size = 2.5) +
+  #color
+  scale_color_manual(values = hcl(h = c(60,240,60,240),c = 100, l = 65, alpha=c(0.4,0.4,1,1), fixup = TRUE)) +
+  #scale_alpha_manual(name = "alignment",
+   #                 values = c(0.2,1)) +
+   geom_vline(xintercept = Threshold1_food, linetype = 'dashed', color = "#85a17d", size = 1) +
+  geom_text(label = "Food Dilution T1", color = "#85a17d" , x = Threshold1_food, y = 0.10, size = 5)+
+  geom_vline(xintercept = Threshold2_food, linetype = 'dashed', color = "#ebbb38", size = 1) +
+  geom_text(label = "Food Dilution T2", color = "#ebbb38" , x = Threshold2_food, y = 0.15, size = 5)+
+  geom_vline(xintercept = Threshold3_food, linetype = 'dashed', color = "#fd8060", size = 1) +
+  geom_text(label = "Food Dilution T3", color = "#fd8060" , x = Threshold3_food, y = 0.20, size = 5)+
+  geom_vline(xintercept = Threshold4_food, linetype = 'dashed', color = "#E84258", size = 1) +
+  geom_text(label = "Food Dilution T4", color = "#E84258",  x = Threshold4_food, y = 0.25, size = 5)+
+  #Aesthetics  
+  ylab("Cumulative Density") +
+  labs(color = "Season - Sampling technique") +
+  xlab("Particles/L (1 to 5,000 µm)") +
+  #xlab(paste0("Particles/L (" ,x1D_set, " to ", x2D_set, "um)"))+
+  scale_y_continuous(labels = scales::percent)+
+  coord_trans(x = "log10") +
+  scale_x_continuous(breaks = scales::trans_breaks("log10", function(x) 10^x),labels = comma_signif)+
+  #annotation_logticks(sides = "b")+ #log scale rick marks on bottom
+  theme.type #+
+ # theme(legend.title = element_blank(),
+  #      legend.position = "none")
+  #labs(title = "Global Surface Water Marine Microplastics Concentrations",
+   #    subtitle = paste("Particles/L corrected to:",x1D_set, "to", x2D_set, "um"),
+    #   caption = paste("Concentration data from Adams et al (2019): 23 studies, 57 sampling locations, n = 377; corrected for size ranges. Alpha = ",alpha))
+ 
+sfBayECDF_wetDry
+```
+
+```{r}
+ggsave(plot = sfBayECDF_wetDry,
+       filename = "sfBayECDF_wetDry.jpeg",
+       path = "output/figures/", 
+       width = 10, height = 6, units = "in",
+       bg = "white",
+       dpi = 300)
+```
 
 ### Risk Characterization Histogram (SFBay)
 ```{r}
@@ -436,6 +539,7 @@ dfSFEI_exceedance %>%
         plot.subtitle = element_text(hjust = 0.5, size = 14))
 ```
 ### ECDF (SF Bay)
+##### All: Aligned vs. Unaligned
 
 ```{r}
 vals <- c("Unaligned" = "black", "Aligned" = "deepskyblue")
@@ -492,7 +596,11 @@ sfBayECDF <- sfBay_new %>%
   scale_x_continuous(breaks = scales::trans_breaks("log10", function(x) 10^x),labels = comma_signif)+
   #annotation_logticks(sides = "b")+ #log scale rick marks on bottom
   theme.type +
-  theme(legend.title = element_blank())
+  theme(legend.title = element_blank(),
+        legend.position = c(0.2,0.8),
+        legend.text = element_text(size = 12, face = "bold"),
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.key.size = unit(1.3, 'cm'))
   #labs(title = "Global Surface Water Marine Microplastics Concentrations",
    #    subtitle = paste("Particles/L corrected to:",x1D_set, "to", x2D_set, "um"),
     #   caption = paste("Concentration data from Adams et al (2019): 23 studies, 57 sampling locations, n = 377; corrected for size ranges. Alpha = ",alpha))
@@ -502,9 +610,66 @@ sfBayECDF
 ```{r}
 ggsave(plot =sfBayECDF,
        filename = "sfBayECDF.jpeg",
-       path = ".output/figures/", 
+       path = "output/figures/", 
        width = 10, height = 6, units = "in",
        bg = "white",
        dpi = 300)
 ```
 
+##### Sampling Technique x Alignment
+
+
+```{r}
+# need to pivot wide data into long format to easily plot
+sfBayECDF_alignedXtechnique <- sfBay_new %>% 
+  filter(source == "SFEI") %>% 
+  filter(sample.matrix.specific == "surface water") %>% 
+  select(c(sampleID, unaligned.particle.L.master, particle.L.master, Sampling.apparatus)) %>% 
+  pivot_longer(-c(sampleID, Sampling.apparatus), names_to = "alignment", values_to = "concentration") %>% 
+  #rename for easy plotting
+  mutate(alignment_pretty = case_when(alignment == "particle.L.master" ~ "Aligned",
+                                      alignment == "unaligned.particle.L.master" ~ "Unaligned")) %>% 
+## PLOTTING ##
+  ggplot(aes(x = concentration, color = interaction(Sampling.apparatus, alignment_pretty, sep = " x "))) +
+  #aligned
+  stat_ecdf(geom = "step", linetype = 'solid', size = 1) +
+  #unaligned
+  #color
+  scale_color_manual(values = hcl(c(15,195,15,195),100,65, alpha=c(1,1, 0.3,0.3))) +
+  #scale_alpha_manual(name = "alignment",
+   #                 values = c(0.2,1)) +
+  # ##Food Dilution thresholds
+  geom_vline(xintercept = Threshold1_food, linetype = 'dashed', color = "#85a17d", size = 1) +
+  geom_text(label = "Food Dilution T1", color = "#85a17d" , x = Threshold1_food, y = 0.10, size = 5)+
+  geom_vline(xintercept = Threshold2_food, linetype = 'dashed', color = "#ebbb38", size = 1) +
+  geom_text(label = "Food Dilution T2", color = "#ebbb38" , x = Threshold2_food, y = 0.15, size = 5)+
+  geom_vline(xintercept = Threshold3_food, linetype = 'dashed', color = "#fd8060", size = 1) +
+  geom_text(label = "Food Dilution T3", color = "#fd8060" , x = Threshold3_food, y = 0.20, size = 5)+
+  geom_vline(xintercept = Threshold4_food, linetype = 'dashed', color = "#E84258", size = 1) +
+  geom_text(label = "Food Dilution T4", color = "#E84258",  x = Threshold4_food, y = 0.25, size = 5)+
+  #aesthetics
+    ylab("Cumulative Density") +
+  labs(color = "Sampling technique x Alignment") +
+  xlab("Particles/L") +
+  #xlab(paste0("Particles/L (" ,x1D_set, " to ", x2D_set, "um)"))+
+  scale_y_continuous(labels = scales::percent)+
+  coord_trans(x = "log10") +
+  scale_x_continuous(breaks = scales::trans_breaks("log10", function(x) 10^x),labels = comma_signif)+
+  #annotation_logticks(sides = "b")+ #log scale rick marks on bottom
+  theme.type +
+  theme(legend.position = "bottom")
+  #labs(title = "Global Surface Water Marine Microplastics Concentrations",
+   #    subtitle = paste("Particles/L corrected to:",x1D_set, "to", x2D_set, "um"),
+    #   caption = paste("Concentration data from Adams et al (2019): 23 studies, 57 sampling locations, n = 377; corrected for size ranges. Alpha = ",alpha))
+ 
+sfBayECDF_alignedXtechnique
+```
+```{r}
+ggsave(plot = sfBayECDF_alignedXtechnique,
+       filename = "sfBayECDF_alignedXtechnique.jpeg",
+       path = "output/figures/", 
+       width = 10, height = 6, units = "in",
+       scale = 1.2,
+       bg = "white",
+       dpi = 300)
+```
