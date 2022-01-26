@@ -57,6 +57,51 @@ distributions <- readxl::read_xlsx("data/2020-09-08_MooreParticleData.xlsx") %>%
 
 skimr::skim(distributions)
 ```
+```{r}
+sum <- distributions %>% 
+  group_by(PlasticType) %>% 
+  summarize(count = n()) %>% 
+  mutate(freq = formattable::percent(count/sum(count))) %>% 
+  arrange(desc(freq))
+
+sum
+```
+How many were unknown or natural?
+```{r}
+sum %>% 
+  mutate(general = case_when(
+    grepl("Unknown", PlasticType, ignore.case = TRUE) ~ "unknown",
+    grepl("anthropogenic", PlasticType, ignore.case = TRUE) ~ "unknown",
+    grepl("natural", PlasticType, ignore.case = TRUE) ~ "natural",
+    PlasticType == "Wool" ~ "natural",
+    PlasticType == "Cotton" ~ "natural",
+    PlasticType == "Cellulosic" ~ "natural",
+    PlasticType == "Glass" ~ "anthropogenic (not plastic)",
+    PlasticType == "Asphalt" ~ "anthropogenic (not plastic)",
+    PlasticType == "Not Characterized" ~ "Not Characterized"
+    )) %>% 
+  replace_na(list(general = "plastic")) %>% 
+  group_by(general) %>% 
+  summarize(freq_total = sum(freq)) %>% 
+  janitor::adorn_totals()
+```
+
+
+###Remove non-plastic particles and other unidentified matter
+```{r}
+#list levels for plastic ID
+levels(distributions$PlasticType)
+
+distributions <- distributions %>% 
+  #remove non-plastics
+  filter(!PlasticType %in% c("Asphalt", "Cellulosic", "Glass", "Unknown", "Wool", "Anthropogenic (protein base)", 
+                             "Anthropogenic (unknown base)", "Cotton", "Inorganic natural material", "Anthropogenic (cellulosic)",
+                             "Not Characterized", "Organic natural material", "Uknown Potentially Rubber", 
+                             "Stearates, Lubricants, Waxes"))
+
+skimr::skim(distributions)
+```
+
 
 ## Modelling
 ### Visualization
@@ -166,7 +211,7 @@ sample_water_cut <- distributions %>%
 
 #cut into bins
 #sample_waterwinsors <- rbin_winsorize(sample_water_cut, polymer, Size_um, 20)
-sample_waterwinsors <- rbin_winsorize(sample_water_cut, predictor = Size_um, Size_um, bins = 100, winsor_rate = 0.05, remove_na = TRUE)
+sample_waterwinsors <- rbin_winsorize(sample_water_cut, predictor = Size_um, Size_um, bins = 25, winsor_rate = 0.05, remove_na = TRUE)
 #save as dataframe
 sample_waterbinned <- as.data.frame(sample_waterwinsors$bins) %>% 
   dplyr::select(c(cut_point, bin_count, bin_prop))
@@ -239,7 +284,7 @@ sample_water_cut <- distributions %>%
 
 #cut into bins
 #sample_waterwinsors <- rbin_winsorize(sample_water_cut, polymer, Size_um, 20)
-sample_waterwinsors <- rbin_winsorize(sample_water_cut, predictor = Size_um, Size_um, bins = 100, winsor_rate = 0.05, remove_na = TRUE)
+sample_waterwinsors <- rbin_winsorize(sample_water_cut, predictor = Size_um, Size_um, bins = 23, winsor_rate = 0.05, remove_na = TRUE)
 #save as dataframe
 sample_waterbinned <- as.data.frame(sample_waterwinsors$bins) %>% 
   dplyr::select(c(cut_point, bin_count, bin_prop))
@@ -313,7 +358,7 @@ effluent_cut <- distributions %>%
 
 #cut into bins
 #effluentwinsors <- rbin_winsorize(effluent_cut, polymer, Size_um, 20)
-effluentwinsors <- rbin_winsorize(effluent_cut, predictor = Size_um, Size_um, bins = 100, winsor_rate = 0.05)
+effluentwinsors <- rbin_winsorize(effluent_cut, predictor = Size_um, Size_um, bins = 25, winsor_rate = 0.05)
 #save as dataframe
 effluentbinned <- as.data.frame(effluentwinsors$bins) %>% 
   dplyr::select(c(cut_point, bin_count, bin_prop))
@@ -386,7 +431,7 @@ runoff_cut <- distributions %>%
 
 #cut into bins
 #runoffwinsors <- rbin_winsorize(runoff_cut, polymer, Size_um, 20)
-runoffwinsors <- rbin_winsorize(runoff_cut, predictor = Size_um, Size_um, bins = 100, winsor_rate = 0.05)
+runoffwinsors <- rbin_winsorize(runoff_cut, predictor = Size_um, Size_um, bins = 25, winsor_rate = 0.05)
 #save as dataframe
 runoffbinned <- as.data.frame(runoffwinsors$bins) %>% 
   dplyr::select(c(cut_point, bin_count, bin_prop))
@@ -460,7 +505,7 @@ sediment_cut <- distributions %>%
 
 #cut into bins
 #sedimentwinsors <- rbin_winsorize(sediment_cut, polymer, Size_um, 20)
-sedimentwinsors <- rbin_winsorize(sediment_cut, predictor = Size_um, Size_um, bins = 100, winsor_rate = 0.05)
+sedimentwinsors <- rbin_winsorize(sediment_cut, predictor = Size_um, Size_um, bins = 20, winsor_rate = 0.05)
 #save as dataframe
 sedimentbinned <- as.data.frame(sedimentwinsors$bins) %>% 
   dplyr::select(c(cut_point, bin_count, bin_prop))
@@ -535,7 +580,7 @@ tissue_cut <- distributions %>%
 
 #cut into bins
 #tissuewinsors <- rbin_winsorize(tissue_cut, polymer, Size_um, 20)
-tissuewinsors <- rbin_winsorize(tissue_cut, predictor = Size_um, Size_um, bins = 90, winsor_rate = 0.05)
+tissuewinsors <- rbin_winsorize(tissue_cut, predictor = Size_um, Size_um, bins = 18, winsor_rate = 0.05)
 #save as dataframe
 tissuebinned <- as.data.frame(tissuewinsors$bins) %>% 
   dplyr::select(c(cut_point, bin_count, bin_prop))
@@ -610,7 +655,7 @@ trimmed_combined <- rbind(trimmedeffluent %>% mutate(matrix = "effluent"),
 
 scatterplot <- trimmed_combined %>% 
   ggplot(aes(x = 10^logSize, y = 10^logAbundance * 100, color = matrix, fill = matrix)) +
-   geom_smooth(method = "lm", se=TRUE, formula = my.formula) +
+   geom_smooth(method = "lm", se=FALSE, formula = my.formula) +
    stat_poly_eq(formula = my.formula, 
                 aes(label = paste(..eq.label.., ..rr.label.., ..p.value.label.., sep = "~~~")),
                 label.x  = "right",

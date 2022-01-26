@@ -42,7 +42,8 @@ library(ggsci)
 # Hazard Concentration and Alignment Parameters
 ```{r}
 ###### Choose concentration alignment parameters####
-alpha.marine = 1.89 #based on SFEI dataset
+alpha.marine = 2.00 #based on SFEI dataset
+alpha.marine.sd <- 0.15
 alpha.freshwater = 2.64 #table s4 from Kooi et al 2021 for freshwater surface water. length
 
 x2D_set = 5000 #100 #upper size range (microns)
@@ -58,11 +59,19 @@ Threshold2 = 5.2 / AF
 Threshold3 = 21.8 / AF
 Threshold4 = 89.9 / AF
 
-#Food dilution thresholds (particles/L aligned to 1-5,000 um)
+##### Food dilution thresholds (particles/L aligned to 1-5,000 um) ####
 Threshold1_food = 0.34 / AF
 Threshold2_food = 3.0 / AF
 Threshold3_food = 5.0 / AF
 Threshold4_food = 34 / AF
+## 95% CI's ##
+Threshold2_food_lcl = 0.3 / AF
+Threshold2_food_hcl = 66 / AF
+Threshold3_food_lcl = 0.4 / AF
+Threshold3_food_hcl = 220 / AF
+Threshold4_food_lcl = 2.5 / AF
+Threshold4_food_hcl = 860 / AF
+
 
 #Oxidative stress thresholds (particles/L aligned to 1-5,000 um)
 Threshold1_oxidative.stress = 60 / AF
@@ -103,10 +112,13 @@ kable(data.frame(
   "lower_size_range_microns" = x1D_set,
   "upper_size_range_microns" = x2D_set))
 ```
+# Data Preparation
+
 To compare thresholds to concentrations observed in the environment, data from the following study is used:
 
 Zhu, Xia, Keenan Munno, Jelena Grbic, Larissa Meghan Werbowski, Jacqueline Bikker, Annissa Ho, Edie Guo, et al. 2021. “Holistic Assessment of Microplastics and Other Anthropogenic Microdebris in an Urban Bay Sheds Light on Their Sources and Fate.” ACS ES&T Water, May, acsestwater.0c00292. https://doi.org/10.1021/acsestwater.0c00292.
 
+## Import
 ```{r}
 #data import
 #SF bay data from Zhu et al (2021)
@@ -117,6 +129,10 @@ sfBay <- read.csv("data/SFBayData.csv", na.strings = "NA", stringsAsFactors = TR
   mutate(Sample.Type = "sample")
 ```
 
+## Cleanup
+Sample #CB9-Manta-11 Jan 18 should be omitted due to non-representative nature (in tidal front) (looks like it's already been removed?)
+
+
 
 ## Plastic particle correction
 10 particles were analyzed for every color/morphology combo. 68% of particles analyzed by Raman/FTIR were plastic in surface water and 23% in fish samples were plastic.
@@ -125,7 +141,7 @@ sfBay <- read.csv("data/SFBayData.csv", na.strings = "NA", stringsAsFactors = TR
 ```
 
 
-# Data Preparation
+
 ## Size-based Correction
 Given an upper limit (UL) and lower limit (LL) of the measured and default size range, a dimensionless correction factor ($CF_{meas}$) for measured environmental concentrations may be calculated, which rescales the measured number concentrations for a certain size range to the number concentration for the microplastics default (D) size range (e.g. 1 to 5,000 um) (Koelmans et al 2020). Coefficients for the environmental-specific compartment for the power law distribution for length (L) with slope $\alpha_L$ is from Table S4 of Kooi et al (2021). 
 
@@ -203,12 +219,58 @@ sfBayGrab <- sfBay_aligned %>%
          particle.L.master_grab = particle.L.master,
          unaligned.particle.L.master_grab = unaligned.particle.L.master,
          CF_grab = CF) %>% 
-  select(c(sampleIDSimple, particle.L.master_grab, unaligned.particle.L.master_grab, CF_grab))
+  dplyr::select(c(sampleIDSimple, particle.L.master_grab, unaligned.particle.L.master_grab, CF_grab))
 
 #recombine manta and grab lengthwise
 #sfBay_new <- left_join(sfBayManta, sfBayGrab, by = "sampleIDSimple")
 ```
 
+# Occurence ANalysis
+
+### Boxplot SFEI
+```{r}
+SFEI_mesh_matrix <- sfBay_new %>% 
+  filter(source == "SFEI") %>% 
+  #filter(sample.matrix.specific == "surface water") %>% 
+  drop_na(particle.L.master) %>% 
+  ggplot(aes(x = sample.matrix.specific))+
+  #aligned
+  geom_boxplot(aes(y = particle.L.master),
+               alpha = 0.4, notch = TRUE) +
+  geom_jitter(aes(y = particle.L.master, color = Sampling.apparatus),
+              width = 0.15) +
+  #unaligned
+ # geom_boxplot(aes(y = unaligned.particle.L.master),
+  #             alpha = 0.4, notch = TRUE) +
+  geom_jitter(aes(y = unaligned.particle.L.master, color = Sampling.apparatus),
+              alpha = 0.3,
+              width = 0.15) +
+
+  scale_color_d3(name = "Sampling Apparatus") +
+  #scale_color_manual(name = "Sampling Apparatus",values = wes_palette("Darjeeling1"))+
+   # geom_hline(yintercept = Threshold1, linetype = 'dashed', color = 'green', size = 1) +
+   # geom_hline(yintercept = Threshold2, linetype = 'dashed', color = 'yellow', size = 1) +
+   # geom_hline(yintercept = Threshold3, linetype = 'dashed', color = 	'orange', size = 1) +
+   # geom_hline(yintercept = Threshold4, linetype = 'dashed', color = 	'red', size = 1) +
+  # geom_text(label = "Threshold 1", color = 'green', x = Threshold1, y = 0.15, size = 6)+
+  # geom_text(label = "Threshold 2", color = 'yellow', x = Threshold2, y = 0.22, size = 6)+
+  # geom_text(label = "Threshold 3", color = 'orange', x = Threshold3, y = 0.35, size = 6)+
+  # geom_text(label = "Threshold 4", color = 'red', x = Threshold4, y = 0.45, size = 6)+
+  scale_y_log10(breaks = scales::trans_breaks("log10", function(y) 10^y),labels = comma_signif)+
+  annotation_logticks(sides = "b")+ #log scale rick marks on bottom
+  ylab(paste0("Particles/L (" ,x1D_set, " to ", x2D_set, " μm)"))+
+  theme.type +
+  labs(title = "San Francisco Bay Surface Water Marine Microplastics Concentrations",
+       subtitle = paste("Particles/L corrected to:",x1D_set, "to", x2D_set, "um"),
+      # caption = paste("Concentration data from Zhu et al (2021): 29 sampling locations, n = 136; corrected for size ranges. Alpha = ",alpha.marine)
+      )+
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, size = 14),
+    axis.title.x = element_blank())
+
+SFEI_mesh_matrix
+```
 
 # SFBay Exceedances
 ```{r}
@@ -252,7 +314,6 @@ probability_distributions.Rmd determines the size power law for marine surface w
 
 ##### Align
 ```{r}
-alpha.marine.sd <- 0.084
 alpha.marine.plus.one <- alpha.marine + alpha.marine.sd
 alpha.marine.plus.two <- alpha.marine + (2 * alpha.marine.sd)
 alpha.marine.plus.three <- alpha.marine + (3 * alpha.marine.sd)
@@ -304,7 +365,7 @@ sensitivity.analysis <- sensitivity %>%
 sensitivity.analysis 
 ```
 
-##### Plot
+##### Sensitivity Plot
 ```{r}
 #ECDF by System
 sfBayECDF_sensitivity <- sensitivity %>% 
@@ -335,30 +396,29 @@ sfBayECDF_sensitivity <- sensitivity %>%
                                 "95th Percentile",
                                 "99.7th Percentile",
                                 "99.7th Percentile")) +
-  # ##Food Dilution thresholds
-  geom_vline(xintercept = Threshold1_food, linetype = 'dashed', color = "#66a182", size = 1.3) +
-  geom_vline(xintercept = Threshold4_food, linetype = 'dashed', 
-             color = "#d1495b",
-             size = 1.3) +
-  geom_text(label = "Food Dilution T1", color = "#66a182" , x = Threshold1_food, y = 0.15, size = 6)+
-   geom_text(label = "Food Dilution T4", color = "#d1495b", 
-            x = Threshold4_food,
-            y = 0.25, size = 6)+
-  ###Oxidative Stress thresholds
-  geom_vline(xintercept = Threshold1_oxidative.stress, linetype = 'dashed',
-             color = "#66a182",#"#00798c",
-             size = 1.3) +
-  geom_vline(xintercept = Threshold4_oxidative.stress, linetype = 'dashed',
-             color = "#d1495b",
-             size = 1.3) +
-  geom_text(label = "Oxidative Stress T1", color = "#66a182",#'#edae49',
-            x = Threshold1_oxidative.stress - 0.8 * Threshold1_oxidative.stress, 
-            y = 0.45, size = 6) +
-  geom_text(label = "Oxidative Stress T4", color = "#d1495b", x =
-              Threshold4_oxidative.stress - 0.8 * Threshold4_oxidative.stress, 
-            y = 0.55, size = 6)+
+  # ##Food Dilution thresholds #
+  # geom_vline(xintercept = Threshold1_food, linetype = 'solid', color = "#85a17d", size = 1) +
+  # geom_text(label = "Food Dilution T1", color = "#85a17d" , x = Threshold1_food, y = 0.10, size = 5)+
+  # geom_vline(xintercept = Threshold2_food, linetype = 'solid', color = "#ebbb38", size = 1) +
+  # geom_text(label = "Food Dilution T2", color = "#ebbb38" , x = Threshold2_food, y = 0.15, size = 5)+
+  geom_vline(xintercept = Threshold3_food, linetype = 'dashed', color = "#fd8060", size = 1) +
+  geom_text(label = "Food Dilution T3", color = "#fd8060" , x = Threshold3_food, y = 0.20, size = 5)+
+  geom_vline(xintercept = Threshold4_food, linetype = 'dashed', color = "#E84258", size = 1) +
+  geom_text(label = "Food Dilution T4", color = "#E84258",  x = Threshold4_food, y = 0.25, size = 5)+
+  ## Food dilution 95% CI's ##
+  # geom_vline(xintercept = Threshold2_food_lcl, linetype = 'dashed', color = "#ebbb38", size = 1) +
+  # geom_vline(xintercept = Threshold2_food_hcl, linetype = 'dashed', color = "#ebbb38", size = 1) +
+  # geom_vline(xintercept = Threshold3_food_lcl, linetype = 'dashed', color = "#fd8060", size = 1.5) +
+  # geom_vline(xintercept = Threshold3_food_hcl, linetype = 'dashed', color = "#fd8060", size = 1.5) +
+  # geom_vline(xintercept = Threshold4_food_lcl, linetype = 'dashed', color = "#E84258", size = 1.5) +
+  # geom_vline(xintercept = Threshold4_food_hcl, linetype = 'dashed', color = "#E84258", size = 1.5) +
+  
+  ## Food dilution 95% CI's ribbons ##
+  annotate("rect", xmin = Threshold3_food_lcl, xmax = Threshold3_food_hcl, ymin = 0, ymax = 1, fill = "#fd8060", alpha = 0.2)+
+  annotate("rect", xmin = Threshold4_food_lcl, xmax = Threshold4_food_hcl, ymin = 0, ymax = 1, fill = "#E84258", alpha = 0.2)+
+  
     ylab("Cumulative Density") +
-  xlab("Particles/L") +
+  xlab("Particles/L (1 to 5,000 µm)") +
   #xlab(paste0("Particles/L (" ,x1D_set, " to ", x2D_set, "um)"))+
   scale_y_continuous(labels = scales::percent)+
   coord_trans(x = "log10") +
@@ -372,6 +432,14 @@ sfBayECDF_sensitivity <- sensitivity %>%
     #   caption = paste("Concentration data from Adams et al (2019): 23 studies, 57 sampling locations, n = 377; corrected for size ranges. Alpha = ",alpha))
  
 sfBayECDF_sensitivity
+```
+```{r}
+ggsave(plot = sfBayECDF_sensitivity,
+       filename = "sfBayECDF_sensitivity.jpeg",
+       path = "output/figures/", 
+       width = 10, height = 6, units = "in",
+       bg = "white",
+       dpi = 300)
 ```
 
 ##### Manta vs. Grab
@@ -461,7 +529,7 @@ sfBayECDF_wetDry <- sfBay_new %>%
   scale_color_manual(values = hcl(h = c(60,240,60,240),c = 100, l = 65, alpha=c(0.4,0.4,1,1), fixup = TRUE)) +
   #scale_alpha_manual(name = "alignment",
    #                 values = c(0.2,1)) +
-   geom_vline(xintercept = Threshold1_food, linetype = 'dashed', color = "#85a17d", size = 1) +
+  geom_vline(xintercept = Threshold1_food, linetype = 'dashed', color = "#85a17d", size = 1) +
   geom_text(label = "Food Dilution T1", color = "#85a17d" , x = Threshold1_food, y = 0.10, size = 5)+
   geom_vline(xintercept = Threshold2_food, linetype = 'dashed', color = "#ebbb38", size = 1) +
   geom_text(label = "Food Dilution T2", color = "#ebbb38" , x = Threshold2_food, y = 0.15, size = 5)+
@@ -624,7 +692,7 @@ ggsave(plot =sfBayECDF,
 sfBayECDF_alignedXtechnique <- sfBay_new %>% 
   filter(source == "SFEI") %>% 
   filter(sample.matrix.specific == "surface water") %>% 
-  select(c(sampleID, unaligned.particle.L.master, particle.L.master, Sampling.apparatus)) %>% 
+  dplyr::select(c(sampleID, unaligned.particle.L.master, particle.L.master, Sampling.apparatus)) %>% 
   pivot_longer(-c(sampleID, Sampling.apparatus), names_to = "alignment", values_to = "concentration") %>% 
   #rename for easy plotting
   mutate(alignment_pretty = case_when(alignment == "particle.L.master" ~ "Aligned",
