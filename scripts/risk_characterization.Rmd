@@ -126,10 +126,47 @@ sfBay <- read.csv("data/SFBayData.csv", na.strings = "NA", stringsAsFactors = TR
   rename(sampleID = ï..sampleID,
           x1M = Min.particle.size.um,
          x2M = Max.particle.size.um) %>% 
-  mutate(Sample.Type = "sample")
+  mutate(Sample.Type = "sample") 
 ```
 
 ## Cleanup
+
+### Wet/Dry Annotation
+<!-- Data reported in Zhu et al (2021) are not annotated with wet/dry, however data from Sutton et al (2019) are. We could match these based on sampleID... -->
+<!-- ```{r} -->
+<!-- sfnotBlankCorrected <- read.csv("data/SFEI_notBlankCorrected.csv", na.strings = "NA", stringsAsFactors = TRUE) %>% -->
+<!--   rename(sampleID = Sample.ID) -->
+<!-- ``` -->
+
+...or we could annotate samples taken between November and March as wet and August-September as dry based on the reporting in this spreadsheet. The grab samples are also paired with the manta samples by ID, so we need to split and recombine lengthwise.
+
+<!-- ### Manta/Grab split % recombine -->
+<!-- ```{r} -->
+<!-- sfBay <- sfBay %>%  -->
+<!--  mutate(season = case_when(grepl("Nov|Dec|Jan|Feb|Mar", sampleID, ignore.case = TRUE) ~ "wet", -->
+<!--                             grepl("Aug|Sep", sampleID, ignore.case = TRUE) ~ "dry")) -->
+
+<!-- #split manta from grabs -->
+<!-- sfBayManta <- sfBay %>%  -->
+<!--   #take out manta only -->
+<!--   filter(Sampling.apparatus == "Manta Trawl") %>%  -->
+<!--   #extract string before space -->
+<!--   mutate(sampleIDSimple = sub(" .*", "", sampleID)) -->
+
+<!-- #extract grab sample only -->
+<!-- sfBayGrab <- sfBay %>%  -->
+<!--   filter(Sampling.apparatus == "1-L grab") %>%  -->
+<!--   #remove extraneous info  -->
+<!--   mutate(sampleIDSimple = sampleID,  -->
+<!--          particle.L.master_grab = particle.L.master, -->
+<!--          unaligned.particle.L.master_grab = unaligned.particle.L.master, -->
+<!--          CF_grab = CF) %>%  -->
+<!--   dplyr::select(c(sampleIDSimple, particle.L.master_grab, unaligned.particle.L.master_grab, CF_grab)) -->
+
+<!-- #recombine manta and grab lengthwise -->
+<!-- sfBay_new <- left_join(sfBayManta, sfBayGrab, by = "sampleIDSimple") -->
+<!-- ``` -->
+
 Sample #CB9-Manta-11 Jan 18 should be omitted due to non-representative nature (in tidal front) (looks like it's already been removed?)
 ```{r}
 grab_with_dates <- readxl::read_excel("data/grab_with_dates.xlsx") %>% 
@@ -155,7 +192,10 @@ sfBay_noGrab <- sfBay %>%
 grab_with_dates_new <- grab_with_dates %>% dplyr::select(-c('Station Code', Date, particle_count, sample_volume_L))
 
 #bind
-sfBay2 <- rbind(sfBay_noGrab, grab_with_dates_new)
+sfBay2 <- rbind(sfBay_noGrab, grab_with_dates_new) %>% 
+  #annotate wet/dry
+  mutate(season = case_when(grepl("Nov|Dec|Jan|Feb|Mar", sampleID, ignore.case = TRUE) ~ "wet",
+                            grepl("Aug|Sep", sampleID, ignore.case = TRUE) ~ "dry"))
 ```
 
 ### Matched Manta and Grab
@@ -163,7 +203,10 @@ sfBay2 <- rbind(sfBay_noGrab, grab_with_dates_new)
 #see matches
 matches <- left_join(sfBay_noGrab, grab_with_dates_new %>%
                        rename("grab_particles.L.blank.corrected" = particles.L.blank.corrected),
-                     by ="sampleID")
+                     by ="sampleID") %>% 
+  #annotate wet/dry
+  mutate(season = case_when(grepl("Nov|Dec|Jan|Feb|Mar", sampleID, ignore.case = TRUE) ~ "wet",
+                            grepl("Aug|Sep", sampleID, ignore.case = TRUE) ~ "dry"))
 
 #view matched data
 library(ggpmisc)
@@ -171,13 +214,16 @@ my.formula <- y ~ x
 
 match_plot <- matches %>% 
   drop_na(grab_particles.L.blank.corrected) %>% 
-  ggplot(aes(x = particles.L.blank.corrected, y = grab_particles.L.blank.corrected))+
+  filter(grab_particles.L.blank.corrected > 0) %>% #remove 0's that shouldn't belong
+  ggplot(aes(x = particles.L.blank.corrected, y = grab_particles.L.blank.corrected, color = season))+
   geom_point()+
-  geom_smooth(method = "lm", se=FALSE, color="black", formula = my.formula) +
+  geom_smooth(method = "lm", se=FALSE, formula = my.formula) +
    stat_poly_eq(formula = my.formula, 
                 aes(label = paste(..eq.label.., ..rr.label.., ..p.value.label.., sep = "~~~")), 
                 parse = TRUE) +         
-  scale_x_log10(name = "Manta Trawl blank-corrected particles/L") +
+  scale_x_log10(name = "Manta Trawl blank-corrected particles/L",
+                breaks = scales::trans_breaks("log10", function(x) 10^x),
+        labels = scales::trans_format("log10", scales::math_format(10^.x))) +
   scale_y_log10(name = "1L-grab blank-corrected particles/L") +
   theme.type
 match_plot
@@ -246,42 +292,6 @@ sfBay_aligned <- sfBay2 %>%
 ```
 
 
-
-## Wet/Dry Annotation
-Data reported in Zhu et al (2021) are not annotated with wet/dry, however data from Sutton et al (2019) are. We could match these based on sampleID...
-```{r}
-sfnotBlankCorrected <- read.csv("data/SFEI_notBlankCorrected.csv", na.strings = "NA", stringsAsFactors = TRUE) %>%
-  rename(sampleID = Sample.ID)
-```
-
-...or we could annotate samples taken between November and March as wet and August-September as dry based on the reporting in this spreadsheet. The grab samples are also paired with the manta samples by ID, so we need to split and recombine lengthwise.
-
-## Manta/Grab split % recombine
-```{r}
-sfBay_aligned <- sfBay_aligned %>% 
- mutate(season = case_when(grepl("Nov|Dec|Jan|Feb|Mar", sampleID, ignore.case = TRUE) ~ "wet",
-                            grepl("Aug|Sep", sampleID, ignore.case = TRUE) ~ "dry"))
-  
-#split manta from grabs
-sfBayManta <- sfBay_aligned %>% 
-  #take out manta only
-  filter(Sampling.apparatus == "Manta Trawl") %>% 
-  #extract string before space
-  mutate(sampleIDSimple = sub(" .*", "", sampleID))
-
-#extract grab sample only
-sfBayGrab <- sfBay_aligned %>% 
-  filter(Sampling.apparatus == "1-L grab") %>% 
-  #remove extraneous info 
-  mutate(sampleIDSimple = sampleID, 
-         particle.L.master_grab = particle.L.master,
-         unaligned.particle.L.master_grab = unaligned.particle.L.master,
-         CF_grab = CF) %>% 
-  dplyr::select(c(sampleIDSimple, particle.L.master_grab, unaligned.particle.L.master_grab, CF_grab))
-
-#recombine manta and grab lengthwise
-sfBay_new <- left_join(sfBayManta, sfBayGrab, by = "sampleIDSimple")
-```
 
 # Occurence ANalysis
 
