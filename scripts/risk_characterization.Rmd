@@ -131,7 +131,65 @@ sfBay <- read.csv("data/SFBayData.csv", na.strings = "NA", stringsAsFactors = TR
 
 ## Cleanup
 Sample #CB9-Manta-11 Jan 18 should be omitted due to non-representative nature (in tidal front) (looks like it's already been removed?)
+```{r}
+grab_with_dates <- readxl::read_excel("data/grab_with_dates.xlsx") %>% 
+   rename(x1M = Min.particle.size.um,
+         x2M = Max.particle.size.um) %>% 
+  mutate(Sample.Type = "sample")
 
+# first replace the dash with space
+#library(stringr)
+#grab_with_dates$newDates <- str_replace(grab_with_dates$Date_string,"-", " ")
+
+#then concat the station code with date to get the sampleID
+#dates <- grab_with_dates %>% 
+ # mutate(sampleID = paste(`Station Code`, newDates))
+
+#join with other dataset
+#new <- left_join(sfBay, dates, by = "sampleID")
+
+#remove grab samples that don't have dates
+sfBay_noGrab <- sfBay %>% 
+  filter(Sampling.apparatus != "1-L grab")
+
+grab_with_dates_new <- grab_with_dates %>% dplyr::select(-c('Station Code', Date, particle_count, sample_volume_L))
+
+#bind
+sfBay2 <- rbind(sfBay_noGrab, grab_with_dates_new)
+```
+
+### Matched Manta and Grab
+```{r}
+#see matches
+matches <- left_join(sfBay_noGrab, grab_with_dates_new %>%
+                       rename("grab_particles.L.blank.corrected" = particles.L.blank.corrected),
+                     by ="sampleID")
+
+#view matched data
+library(ggpmisc)
+my.formula <- y ~ x
+
+match_plot <- matches %>% 
+  drop_na(grab_particles.L.blank.corrected) %>% 
+  ggplot(aes(x = particles.L.blank.corrected, y = grab_particles.L.blank.corrected))+
+  geom_point()+
+  geom_smooth(method = "lm", se=FALSE, color="black", formula = my.formula) +
+   stat_poly_eq(formula = my.formula, 
+                aes(label = paste(..eq.label.., ..rr.label.., ..p.value.label.., sep = "~~~")), 
+                parse = TRUE) +         
+  scale_x_log10(name = "Manta Trawl blank-corrected particles/L") +
+  scale_y_log10(name = "1L-grab blank-corrected particles/L") +
+  theme.type
+match_plot
+```
+```{r}
+ggsave(plot = match_plot,
+       filename = "match_plot.jpeg",
+       path = "output/figures/", 
+       width = 10, height = 6, units = "in",
+       bg = "white",
+       dpi = 300)
+```
 
 
 ## Plastic particle correction
@@ -165,7 +223,7 @@ CFfnx = function(a = alpha, #default alpha from Koelmans et al (2020)
 
 
 # correct aquatic concentrations for SF Bay
-sfBay_aligned <- sfBay %>% 
+sfBay_aligned <- sfBay2 %>% 
   mutate(CF = case_when(
     System == "Estuary" ~ CFfnx(a = alpha.marine, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
    is.na(System) ~ CFfnx(a = alpha.freshwater, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set))) %>%  #create new column with correction factor 
@@ -222,7 +280,7 @@ sfBayGrab <- sfBay_aligned %>%
   dplyr::select(c(sampleIDSimple, particle.L.master_grab, unaligned.particle.L.master_grab, CF_grab))
 
 #recombine manta and grab lengthwise
-#sfBay_new <- left_join(sfBayManta, sfBayGrab, by = "sampleIDSimple")
+sfBay_new <- left_join(sfBayManta, sfBayGrab, by = "sampleIDSimple")
 ```
 
 # Occurence ANalysis
