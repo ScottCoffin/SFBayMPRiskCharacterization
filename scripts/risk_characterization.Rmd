@@ -617,6 +617,7 @@ sfBay_aligned <- sfBay3 %>%
 
 
 
+
 # Occurence ANalysis
 
 ### Boxplot SFEI
@@ -772,10 +773,30 @@ write.csv(sensitivity,
           )
 ```
 
-
-
-##### Compare to thresholds
+###Export table showing correction factors
 ```{r}
+CF_table <- sensitivity %>% 
+  group_by(Sampling.apparatus, matrix) %>% 
+  summarize(mesh_size = mean(x1M),
+            CF = round(mean(CF),2), 
+            CF.lower.95 = round(mean(CF.lower.95),2),
+            CF.upper.95 = round(mean(CF.upper.95),2))
+
+write.csv(CF_table,
+          "output/data/CF_table.csv")
+
+CF_table
+```
+
+#### Compare to thresholds
+##### All surface water samples
+```{r}
+#count samples
+surface.count <- sensitivity %>% 
+  filter(source == "SFEI") %>% 
+  filter(sample.matrix.specific == "surface water") %>% 
+  summarize(n())
+
 sensitivity.analysis <- sensitivity %>% 
   filter(source == "SFEI") %>% 
   filter(sample.matrix.specific == "surface water") %>% 
@@ -790,10 +811,12 @@ sensitivity.analysis <- sensitivity %>%
     value >= Threshold3_food & value < Threshold4_food ~ "above Threshold 3",
     value >= Threshold4_food ~ "above Threshold 4"
   ))) %>% 
-  group_by(aboveThreshold, name) %>%
+ group_by(aboveThreshold, name) %>%
   dplyr::summarize(n = n()) %>% 
-  mutate(rel.freq = paste0(round(100 * n/sum(n), 0), "%")) %>% 
-  pivot_wider(names_from = "name", values_from = c("rel.freq", "n"))
+  mutate(rel.freq = paste0(round(100 *(n/surface.count[1,]),1),"%")) %>% 
+  pivot_wider(names_from = "name", values_from = c("n", "rel.freq")) %>% 
+  mutate(aboveThreshold = factor(aboveThreshold, levels = c("below Threshold 1", "above Threshold 1", "above Threshold 2", "above Threshold 3", "above Threshold 4"))) %>% 
+  arrange(aboveThreshold)
 
 sensitivity.analysis 
 ```
@@ -805,7 +828,7 @@ write.csv(sensitivity.analysis ,
           )
 ```
 
-##### Sensitivity Plot
+###### Sensitivity Plot
 ```{r}
 #ECDF by System
 sfBayECDF_sensitivity <- sensitivity %>% 
@@ -885,7 +908,52 @@ ggsave(plot = sfBayECDF_sensitivity,
        dpi = 300)
 ```
 
+##### MANTA only
+```{r}
+#count samples
+manta.count <- sensitivity %>% 
+  filter(source == "SFEI") %>% 
+  filter(sample.matrix.specific == "surface water") %>% 
+  filter(Sampling.apparatus == "Manta Trawl") %>%
+  summarize(n())
+
+
+sensitivity.analysis.manta <- sensitivity %>% 
+  filter(source == "SFEI") %>% 
+  filter(sample.matrix.specific == "surface water") %>% 
+  filter(Sampling.apparatus == "Manta Trawl") %>%
+  #just select concentrations
+  dplyr::select(c(Conc, conc.upper.68, conc.upper.95, conc.upper.99, conc.lower.68, conc.lower.95, conc.lower.99)) %>% 
+  #make long data
+  pivot_longer(everything()) %>% 
+  mutate(aboveThreshold = factor(case_when(
+    value < Threshold1_food ~ "below Threshold 1",
+    value >= Threshold1_food & value < Threshold2_food ~ "above Threshold 1",
+    value >= Threshold2_food & value < Threshold3_food ~ "above Threshold 2",
+    value >= Threshold3_food & value < Threshold4_food ~ "above Threshold 3",
+    value >= Threshold4_food ~ "above Threshold 4"
+  ))) %>% 
+  group_by(aboveThreshold, name) %>%
+  dplyr::summarize(n = n()) %>% 
+  mutate(rel.freq = paste0(round(100 *(n/manta.count[1,]),1),"%")) %>% 
+  pivot_wider(names_from = "name", values_from = c("n", "rel.freq")) %>% 
+  mutate(aboveThreshold = factor(aboveThreshold, levels = c("below Threshold 1", "above Threshold 1", "above Threshold 2", "above Threshold 3", "above Threshold 4"))) %>% 
+  arrange(aboveThreshold)
+  
+
+sensitivity.analysis.manta
+```
+
+###### EXPORT EXCEEDANCES
+```{r}
+write.csv(sensitivity.analysis.manta ,
+          "output/data/surface_water_exceedances_sensitivity_analysis_manta.csv"
+          )
+```
+
+
 ##### Manta vs. Grab
+
 ```{r}
 #ECDF by System
 sfBayECDF_sensitivity <- sensitivity %>% 
@@ -1218,16 +1286,18 @@ ANOVA <- aov(data = all_data, particles.any ~ sample.matrix * Sampling.location)
 
 anova_table <- summary(ANOVA)
 
+anova_table
+
 new <- all_data %>%  filter(Sampling.location %in% c("South Bay", "Lower South Bay", "Central Bay"))
 
-library(apaTables)
-apa.aov.table(dv = particles.any,
-               iv1 = sample.matrix,
-               iv2 = Sampling.location,
-               data = new,
-               filename = "output/ANOVA.doc",
-             #  show.marginal.means = TRUE
-               )
+# library(apaTables)
+# apa.aov.table(dv = particles.any,
+#                iv1 = sample.matrix,
+#                iv2 = Sampling.location,
+#                data = new,
+#                filename = "output/ANOVA.doc",
+#              #  show.marginal.means = TRUE
+#                )
 ```
 ## Boxplots by matrix
 ```{r}
