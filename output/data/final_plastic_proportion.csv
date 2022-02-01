@@ -1,0 +1,27 @@
+"","locationMatrix","Sample.Type","location_fix","proportion.x"
+"1","Central Bay Fish","Fish","Central Bay",0.31
+"2","Central Bay Sediment","Sediment","Central Bay",0.56
+"3","Central Bay Storm","Storm","Central Bay",0.41
+"4","Central Bay Surface","Surface","Central Bay",0.81
+"5","Central Bay WWTP","WWTP","Central Bay",0.48
+"6","Lower South Bay Fish","Fish","Lower South Bay",0.26
+"7","Lower South Bay Sediment","Sediment","Lower South Bay",0.64
+"8","Lower South Bay Storm","Storm","Lower South Bay",0.65
+"9","Lower South Bay Surface","Surface","Lower South Bay",0.78
+"10","Lower South Bay WWTP","WWTP","Lower South Bay",0.38
+"11","National Marine Sanctuary Surface","Surface","National Marine Sanctuary",0.83
+"12","North Bay Sediment","Sediment","North Bay",0.52
+"13","North Bay Storm","Storm","North Bay",0.56
+"14","North Bay Surface","Surface","North Bay",0.65
+"15","North Bay WWTP","WWTP","North Bay",0.33
+"16","South Bay Fish","Fish","South Bay",0.29
+"17","South Bay Sediment","Sediment","South Bay",0.63
+"18","South Bay Storm","Storm","South Bay",0.46
+"19","South Bay Surface","Surface","South Bay",0.77
+"20","Tomales Bay Fish","Fish","Tomales Bay",0.23
+"21","Tomales Bay Sediment","Sediment","Tomales Bay",0.43
+"22","general Fish",NA,NA,0.2725
+"23","general Sediment",NA,NA,0.556
+"24","general Storm",NA,NA,0.52
+"25","general Surface",NA,NA,0.768
+"26","general WWTP",NA,NA,0.396666666666667

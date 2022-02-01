@@ -52,6 +52,7 @@ alpha.marine.sd <- 0.15 #based on SFEI dataset
 alpha.wastewater <- 1.58
 alpha.wastewater.sd <- 0.11
 alpha.sediment <- 2.10
+alpha.sediment.sd <- 0.12
 alpha.wastewater.sd <- 0.11
 alpha.fish <- 1.75
 alpha.fish.sd <- 0.17
@@ -371,16 +372,197 @@ sfBay2 <- rbind(sfBay_noGrab, grab_with_dates_new) %>%
 ## Plastic particle correction
 10 particles were analyzed for every color/morphology combo. 68% of particles analyzed by Raman/FTIR were plastic in surface water and 23% in fish samples were plastic.
 
-```{r}
-water_correction_factor <- 0.68 #68% of particles were plastic
-fish_correction_factor <- 0.23 #23% of particles were plastic in fish
+Site-specific polymer percentages are reported in Table S18 of Zhu et al (2021) https://pubs.acs.org/doi/10.1021/acsestwater.0c00292?goto=supporting-info 
+Data from this table were imported into excel and are used to correct for plastic percentages in locaiton-specific compartments below.
 
-sfBay3 <- sfBay2 %>% 
-  mutate(particles.L.blank.corrected.particle.corrected = case_when(
-    sample.matrix == "water" ~ particles.L.blank.corrected * water_correction_factor)) %>% 
-  mutate(particles.fish.blank.corrected.particle.corrected = case_when(sample.matrix == "fish" ~ particles.fish.blank.corrected * fish_correction_factor))
+### Derive correction factors
+```{r}
+#read in table S18
+site_polymer_percentages <-  readxl::read_excel("data/grab_with_dates.xlsx", sheet = "relative_abundances", na = "N/A") %>% mutate_if(is.character, as.factor)
+
+#long-wise
+long_polymer <- site_polymer_percentages %>% 
+  pivot_longer(-c(Sample.Type, Polymer), names_to = "location", values_to = "proportion") %>% 
+  drop_na()
+
+#ensure adds up to 100%
+long_polymer %>% 
+  group_by(location, Sample.Type) %>% 
+  summarize(sum(proportion))
 ```
 
+```{r}
+#collapse categories
+summary_proportions <- long_polymer %>% 
+  mutate(general = case_when(
+    grepl("Unknown", Polymer, ignore.case = TRUE) ~ "unknown",
+    grepl("anthropogenic", Polymer, ignore.case = TRUE) ~ "unknown",
+    grepl("natural", Polymer, ignore.case = TRUE) ~ "natural",
+    Polymer == "Wool" ~ "natural",
+    Polymer == "Cotton" ~ "natural",
+    Polymer == "Cellulosic" ~ "natural",
+    Polymer == "Glass" ~ "anthropogenic (not plastic)",
+    Polymer == "Asphalt" ~ "anthropogenic (not plastic)",
+    Polymer == "Not Characterized" ~ "Not Characterized"
+    )) %>% 
+  replace_na(list(general = "plastic")) %>% 
+  group_by(general, location, Sample.Type) %>% 
+  summarize(freq_total = sum(proportion))
+  
+summary_proportions %>%  DT::datatable()
+```
+
+Collapse further to obtain plastic percentages by matrix x location
+```{r}
+#recode
+plastic_proportions <- summary_proportions %>% 
+  filter(general == "plastic") %>% 
+  mutate(proportion = freq_total/100) %>% 
+  mutate(location_fix = case_when(
+    location == "CentralBay" ~ "Central Bay",
+    location == "LowerSouthBay" ~ "Lower South Bay",
+    location == "NMS" ~ "National Marine Sanctuary",
+    location == "NorthBay" ~ "North Bay",
+    location == "SouthBay" ~ "South Bay",
+    location == "TomalesBay" ~ "Tomales Bay")) %>% 
+  mutate(locationMatrix = paste(location_fix, Sample.Type))  %>% 
+  ungroup() 
+  
+
+#view
+plastic_proportions
+```
+#### Site-specific Polymer Proportion Figure
+```{r}
+propotion_heatmap <- plastic_proportions %>% 
+  dplyr::select(c(location_fix, proportion, Sample.Type)) %>% 
+  #filter(location_fix %in% c("Central Bay", "Lower South Bay")) %>% 
+  ggplot(aes(y = location_fix, x = Sample.Type, fill = proportion)) +
+  geom_tile() +
+  scale_fill_viridis(name = "Plastic % of \nSub-Sampled \nParticles",
+                     discrete = FALSE,
+                     limits = c(0,1),
+                     labels = scales::percent_format(scale = 100)) +
+  ylab("Location in SF Bay") +
+  xlab("Compartment") +
+  theme.type +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank(),
+        panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank())
+
+propotion_heatmap
+```
+
+
+#### General proportions
+Polymer percentages are not available for all locations, so general proportions must be derived
+```{r}
+general_proportions <- plastic_proportions %>% 
+  group_by(Sample.Type) %>% 
+  summarize(ave.prop = mean(proportion), sd.prop = sd(proportion))
+
+general_proportions
+
+general_proportions_graph <- general_proportions %>% 
+  ggplot(aes(x = ave.prop, y = Sample.Type, fill = Sample.Type)) +
+  geom_col() +
+  geom_errorbarh(aes(xmax = ave.prop + sd.prop, xmin = ave.prop - sd.prop)) +
+  scale_x_continuous(name = "Plastic % of Sub-Sampled Particles (mean +- SD)",
+                     limits = c(0,1),
+                     labels = scales::percent_format(scale = 100)) +
+  scale_fill_futurama() +
+  theme.type +
+  theme(legend.position = "none",
+        axis.title.y = element_blank())
+
+general_proportions_graph
+```
+```{r}
+proportions_arranged <- ggarrange(propotion_heatmap,general_proportions_graph,
+          labels = c("A", "B"),
+          ncol = 1,
+          nrow = 2)
+
+proportions_arranged
+
+ggsave(plot = proportions_arranged,
+       filename = "proportions_arranged.jpeg",
+       path = "output/figures/", 
+       width = 10, height = 6, units = "in",
+       bg = "white",
+       dpi = 300)
+```
+
+
+#### Export table
+```{r}
+final_proportions <- rbind(plastic_proportions %>% 
+        dplyr::select(c(locationMatrix, proportion)),
+                      general_proportions %>% 
+                        mutate(locationMatrix = paste("general", Sample.Type)) %>% 
+                        rename(proportion = ave.prop) %>% 
+                        dplyr::select(c(locationMatrix, proportion))
+      )
+
+final_proportions
+
+## export pretty table
+pretty_proportions <- left_join(final_proportions, plastic_proportions, by = "locationMatrix") %>%
+  dplyr::select(c(locationMatrix,Sample.Type, location_fix, proportion.x))
+
+write.csv(pretty_proportions,
+          "output/data/final_plastic_proportion.csv"
+          )
+```
+
+### Apply correciton factors
+
+```{r}
+##recode missing levels into generic (NA)
+sfBay2_recode <- sfBay2 %>% 
+  mutate(locationNew = case_when(
+    general.location == "Central Bay" ~ "Central Bay",
+    general.location == "South Bay" ~ "South Bay",
+    general.location == "Lower South Bay" ~ "Lower South Bay",
+    general.location == "National Marine Sancturay" ~ "National Marine Sanctuary",
+    general.location == "Tomales Bay" ~ "Tomales Bay",
+    general.location == "Treasure Island" ~ "general",
+    general.location == "SPB" ~ "general",
+    general.location == "SC" ~ "general",
+    general.location == "SUB" ~ "general",
+    general.location == "SOSL" ~ "general")) %>% 
+  #cleanup
+  replace_na(list(locationNew = "general")) %>% 
+   #recode matrices
+  mutate(matrix = case_when(
+    sample.matrix == "fish" ~ "Fish",
+    sample.matrix == "sediment" ~ "Sediment",
+    sample.matrix.specific == "stormwater" ~ "Storm",
+    sample.matrix.specific == "surface water" ~ "Surface",
+    sample.matrix.specific == "wastewater" ~ "WWTP")) %>% 
+    #ID
+  mutate(locationMatrix = factor(paste(locationNew, matrix)))
+
+sfBay2_recode
+```
+
+
+```{r}
+#join tables
+sfBay2_joined <- left_join(sfBay2_recode, final_proportions, by = "locationMatrix")
+
+sfBay2_joined 
+```
+
+
+Cleanup and apply general correction factors when site-specific data were unavailable
+```{r}
+sfBay3 <- sfBay2_joined %>% 
+  mutate(particles.L.blank.corrected.particle.corrected = particles.L.blank.corrected * proportion,
+         particles.fish.blank.corrected.particle.corrected = particles.fish.blank.corrected * proportion,
+         particles.kg.blank.corrected.particle.corrected = particles.kg.blank.corrected * proportion)
+```
 
 
 ## Size-based Correction
@@ -415,7 +597,7 @@ sfBay_aligned <- sfBay3 %>%
    sample.matrix == "fish" ~ CFfnx(a = alpha.fish, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),)) %>% 
   mutate(particle.L.master = particles.L.blank.corrected.particle.corrected * CF,
          particle.fish.master = particles.fish.blank.corrected.particle.corrected * CF,
-         particles.kg.master = particles.kg.blank.corrected * CF) %>% 
+         particles.kg.master = particles.kg.blank.corrected.particle.corrected * CF) %>% 
   rename(unaligned.particle.L.master = particles.L.blank.corrected.particle.corrected) %>% 
   #filter(unaligned.particle.L.master > 0) %>%  #remove blanks. should convert to 1/2 LOQ...
   mutate(source = "SFEI") %>% 
@@ -524,33 +706,73 @@ probability_distributions.Rmd determines the size power law for marine surface w
 
 ##### Align
 ```{r}
-alpha.marine.plus.one <- alpha.marine + alpha.marine.sd
-alpha.marine.plus.two <- alpha.marine + (2 * alpha.marine.sd)
-alpha.marine.plus.three <- alpha.marine + (3 * alpha.marine.sd)
-alpha.marine.minus.one <- alpha.marine - alpha.marine.sd
-alpha.marine.minus.two <- alpha.marine - (2 * alpha.marine.sd)
-alpha.marine.minus.three <- alpha.marine - (3 * alpha.marine.sd)
+# alpha.marine.plus.one <- alpha.marine + alpha.marine.sd
+# alpha.marine.plus.two <- alpha.marine + (2 * alpha.marine.sd)
+# alpha.marine.plus.three <- alpha.marine + (3 * alpha.marine.sd)
+# alpha.marine.minus.one <- alpha.marine - alpha.marine.sd
+# alpha.marine.minus.two <- alpha.marine - (2 * alpha.marine.sd)
+# alpha.marine.minus.three <- alpha.marine - (3 * alpha.marine.sd)
+
+#create dataframe with PDFs derived in probability_distributions.Rmd
+alignment_factors <- data.frame("matrix" = c("Surface", "Fish", "Storm", "WWTP", "Sediment"),
+                                "alpha" = c(alpha.marine, alpha.fish, alpha.stormwater, alpha.wastewater, alpha.sediment),
+                                "alpha.se" = c(alpha.marine.sd, alpha.fish.sd, alpha.stormwater.sd, alpha.wastewater.sd, alpha.sediment.sd)) %>% 
+  mutate(alpha.upper.68 = alpha + alpha.se,
+         alpha.lower.68 = alpha - alpha.se,
+         alpha.upper.95 = alpha + (1.96*alpha.se),
+         alpha.lower.95 = alpha - (1.96*alpha.se),
+         alpha.upper.99 = alpha + (3*alpha.se),
+         alpha.lower.99 = alpha - (3*alpha.se))
+
+alignment_factors
+```
+
+```{r}
+sfBay_new2 <- left_join(sfBay_new, alignment_factors, by = "matrix")
 
 #align data for different scenarios
-sensitivity <- sfBay_new %>%
-  #filter(source == "SFEI") %>% 
-  #filter(sample.matrix.specific == "surface water") %>% 
-  drop_na(Conc) %>% 
+sensitivity <- sfBay_new2 %>%
   #derive correction factors
-  mutate(plus1SD = CFfnx(a = alpha.marine.plus.one, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
-         plus2SD = CFfnx(a = alpha.marine.plus.two, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
-         plus3SD = CFfnx(a = alpha.marine.plus.three, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
-         minus1SD = CFfnx(a = alpha.marine.minus.one, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
-         minus2SD = CFfnx(a = alpha.marine.minus.two, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
-         minus3SD = CFfnx(a = alpha.marine.minus.three, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set)) %>%
+  mutate(CF.upper.68 = CFfnx(a = alpha.upper.68, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+         CF.upper.95 = CFfnx(a = alpha.upper.95, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+         CF.upper.99 = CFfnx(a = alpha.upper.99, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+         CF.lower.68 = CFfnx(a = alpha.lower.68, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+         CF.lower.95 = CFfnx(a = alpha.lower.95, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+         CF.lower.99 = CFfnx(a = alpha.lower.99, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set)) %>%
   #apply correction fcators
-  mutate(conc.plus1 = unaligned.particle.L.master * plus1SD,
-         conc.plus2 = unaligned.particle.L.master * plus2SD,
-         conc.plus3 = unaligned.particle.L.master * plus3SD,
-         conc.minus1 = unaligned.particle.L.master * minus1SD,
-         conc.minus2 = unaligned.particle.L.master * minus2SD,
-         conc.minus3 = unaligned.particle.L.master * minus3SD)
+  mutate(conc.upper.68 = case_when(sample.matrix == "water" ~ CF.upper.68 * unaligned.particle.L.master,
+                                   sample.matrix == "sediment" ~ CF.upper.68 * particles.kg.blank.corrected.particle.corrected,
+                                   sample.matrix == "fish" ~ CF.upper.68 * particles.fish.blank.corrected.particle.corrected),
+         conc.upper.95 =  case_when(sample.matrix == "water" ~ CF.upper.95 * unaligned.particle.L.master,
+                                   sample.matrix == "sediment" ~ CF.upper.95 * particles.kg.blank.corrected.particle.corrected,
+                                   sample.matrix == "fish" ~ CF.upper.95 * particles.fish.blank.corrected.particle.corrected),
+         conc.upper.99 =  case_when(sample.matrix == "water" ~ CF.upper.99 * unaligned.particle.L.master,
+                                   sample.matrix == "sediment" ~ CF.upper.99 * particles.kg.blank.corrected.particle.corrected,
+                                   sample.matrix == "fish" ~ CF.upper.99 * particles.fish.blank.corrected.particle.corrected),
+         ## lower intervals
+         conc.lower.68 = case_when(sample.matrix == "water" ~ CF.lower.68 * unaligned.particle.L.master,
+                                   sample.matrix == "sediment" ~ CF.lower.68 * particles.kg.blank.corrected.particle.corrected,
+                                   sample.matrix == "fish" ~ CF.lower.68 * particles.fish.blank.corrected.particle.corrected),
+         conc.lower.95 =  case_when(sample.matrix == "water" ~ CF.lower.95 * unaligned.particle.L.master,
+                                   sample.matrix == "sediment" ~ CF.lower.95 * particles.kg.blank.corrected.particle.corrected,
+                                   sample.matrix == "fish" ~ CF.lower.95 * particles.fish.blank.corrected.particle.corrected),
+         conc.lower.99 =  case_when(sample.matrix == "water" ~ CF.lower.99 * unaligned.particle.L.master,
+                                   sample.matrix == "sediment" ~ CF.lower.99 * particles.kg.blank.corrected.particle.corrected,
+                                   sample.matrix == "fish" ~ CF.lower.99 * particles.fish.blank.corrected.particle.corrected)
+  )
+
+sensitivity
+                                   
 ```
+
+###### EXPORT DATA
+```{r}
+write.csv(sensitivity,
+          "output/data/final_aligned_dataset.csv"
+          )
+```
+
+
 
 ##### Compare to thresholds
 ```{r}
@@ -558,7 +780,7 @@ sensitivity.analysis <- sensitivity %>%
   filter(source == "SFEI") %>% 
   filter(sample.matrix.specific == "surface water") %>% 
   #just select concentrations
-  dplyr::select(c(Conc, conc.plus1, conc.plus2, conc.plus3, conc.minus1, conc.minus2, conc.minus3)) %>% 
+  dplyr::select(c(Conc, conc.upper.68, conc.upper.95, conc.upper.99, conc.lower.68, conc.lower.95, conc.lower.99)) %>% 
   #make long data
   pivot_longer(everything()) %>% 
   mutate(aboveThreshold = factor(case_when(
@@ -570,9 +792,17 @@ sensitivity.analysis <- sensitivity %>%
   ))) %>% 
   group_by(aboveThreshold, name) %>%
   dplyr::summarize(n = n()) %>% 
-  mutate(rel.freq = paste0(round(100 * n/sum(n), 0), "%"))
+  mutate(rel.freq = paste0(round(100 * n/sum(n), 0), "%")) %>% 
+  pivot_wider(names_from = "name", values_from = c("rel.freq", "n"))
 
 sensitivity.analysis 
+```
+
+###### EXPORT EXCEEDANCES
+```{r}
+write.csv(sensitivity.analysis ,
+          "output/data/surface_water_exceedances_sensitivity_analysis.csv"
+          )
 ```
 
 ##### Sensitivity Plot
@@ -583,7 +813,7 @@ sfBayECDF_sensitivity <- sensitivity %>%
   filter(sample.matrix.specific == "surface water") %>% 
   filter(particle.L.master > 0) %>% 
   #just select concentrations
-  dplyr::select(c(Conc, conc.plus1, conc.plus2, conc.plus3, conc.minus1, conc.minus2, conc.minus3)) %>% 
+  dplyr::select(c(Conc, conc.upper.68, conc.upper.95, conc.upper.99, conc.lower.68, conc.lower.95, conc.lower.99)) %>% 
   #make long data
   pivot_longer(everything()) %>% 
   mutate(name = as.factor(name)) %>% 
@@ -594,12 +824,12 @@ sfBayECDF_sensitivity <- sensitivity %>%
   #color
   scale_color_manual(name = "Alignment Uncertanties",
                      values = c("Conc" = "#e8ffff",
-                                "conc.minus1" = "#bfe6ff",
-                                "conc.plus1" = "#bfe6ff",
-                                "conc.minus2" = "#8cd3ff",
-                                "conc.plus2" = "#8cd3ff",
-                                "conc.minus3" = "#009dff",
-                                "conc.plus3" = "#009dff"),
+                                "conc.lower.68" = "#bfe6ff",
+                                "conc.upper.68" = "#bfe6ff",
+                                "conc.lower.95" = "#8cd3ff",
+                                "conc.upper.95" = "#8cd3ff",
+                                "conc.lower.99" = "#009dff",
+                                "conc.upper.99" = "#009dff"),
                      labels = c("Mean", 
                                 "68th Percentile",
                                 "68th Percentile",
@@ -610,12 +840,12 @@ sfBayECDF_sensitivity <- sensitivity %>%
   # ##Food Dilution thresholds #
   # geom_vline(xintercept = Threshold1_food, linetype = 'solid', color = "#85a17d", size = 1) +
   # geom_text(label = "Food Dilution T1", color = "#85a17d" , x = Threshold1_food, y = 0.10, size = 5)+
-  # geom_vline(xintercept = Threshold2_food, linetype = 'solid', color = "#ebbb38", size = 1) +
-  # geom_text(label = "Food Dilution T2", color = "#ebbb38" , x = Threshold2_food, y = 0.15, size = 5)+
-  geom_vline(xintercept = Threshold3_food, linetype = 'dashed', color = "#fd8060", size = 1) +
-  geom_text(label = "Food Dilution T3", color = "#fd8060" , x = Threshold3_food, y = 0.20, size = 5)+
-  geom_vline(xintercept = Threshold4_food, linetype = 'dashed', color = "#E84258", size = 1) +
-  geom_text(label = "Food Dilution T4", color = "#E84258",  x = Threshold4_food, y = 0.25, size = 5)+
+  geom_vline(xintercept = Threshold2_food, linetype = 'dashed', color = "#ebbb38", size = 1.5) +
+  geom_text(label = "Food Dilution T2", color = "#ebbb38" , x = Threshold2_food, y = 0.15, size = 6)+
+  # geom_vline(xintercept = Threshold3_food, linetype = 'dashed', color = "#fd8060", size = 1) +
+  # geom_text(label = "Food Dilution T3", color = "#fd8060" , x = Threshold3_food, y = 0.20, size = 5)+
+   geom_vline(xintercept = Threshold4_food, linetype = 'dashed', color = "#E84258", size = 1.5) +
+  geom_text(label = "Food Dilution T4", color = "#E84258",  x = Threshold4_food, y = 0.25, size = 6)+
   ## Food dilution 95% CI's ##
   # geom_vline(xintercept = Threshold2_food_lcl, linetype = 'dashed', color = "#ebbb38", size = 1) +
   # geom_vline(xintercept = Threshold2_food_hcl, linetype = 'dashed', color = "#ebbb38", size = 1) +
@@ -625,11 +855,13 @@ sfBayECDF_sensitivity <- sensitivity %>%
   # geom_vline(xintercept = Threshold4_food_hcl, linetype = 'dashed', color = "#E84258", size = 1.5) +
   
   ## Food dilution 95% CI's ribbons ##
-  annotate("rect", xmin = Threshold3_food_lcl, xmax = Threshold3_food_hcl, ymin = 0, ymax = 1, fill = "#fd8060", alpha = 0.2)+
-  annotate("rect", xmin = Threshold4_food_lcl, xmax = Threshold4_food_hcl, ymin = 0, ymax = 1, fill = "#E84258", alpha = 0.2)+
+  annotate("rect", xmin = Threshold2_food_lcl, xmax = Threshold2_food_hcl, ymin = 0, ymax = 1, fill = "#fd8060", alpha = 0.2, color = "#fd8060", linetype = "dotted")+
+  #annotate("rect", xmin = Threshold3_food_lcl, xmax = Threshold3_food_hcl, ymin = 0, ymax = 1, fill = "#fd8060", alpha = 0.2)+
+  annotate("rect", xmin = Threshold4_food_lcl, xmax = Threshold4_food_hcl, ymin = 0, ymax = 1, fill = "#E84258", alpha = 0.2,
+           color = "#fd8060", linetype = "dotted")+
   
     ylab("Cumulative Density") +
-  xlab("Particles/L (1 to 5,000 µm)") +
+  xlab("Surface Water Particles/L (aligned to 1 to 5,000 µm)") +
   #xlab(paste0("Particles/L (" ,x1D_set, " to ", x2D_set, "um)"))+
   scale_y_continuous(labels = scales::percent)+
   coord_trans(x = "log10") +
