@@ -37,14 +37,28 @@ library(ggdark)
 library(viridis)
 library(ggpubr)
 library(ggsci)
+library(stringr)
+library(skimr)
+library(ggpmisc)
 ```
 
 # Hazard Concentration and Alignment Parameters
 ```{r}
 ###### Choose concentration alignment parameters####
+alpha.stormwater <- 1.87
+alpha.stormwater.sd <- 0.13
 alpha.marine = 2.00 #based on SFEI dataset
-alpha.marine.sd <- 0.15
+alpha.marine.sd <- 0.15 #based on SFEI dataset
+alpha.wastewater <- 1.58
+alpha.wastewater.sd <- 0.11
+alpha.sediment <- 2.10
+alpha.wastewater.sd <- 0.11
+alpha.fish <- 1.75
+alpha.fish.sd <- 0.17
+
+#based on Kooi
 alpha.freshwater = 2.64 #table s4 from Kooi et al 2021 for freshwater surface water. length
+
 
 x2D_set = 5000 #100 #upper size range (microns)
 x1D_set = 1 #1 #lower size range (microns)
@@ -142,25 +156,25 @@ sfBay <- read.csv("data/SFBayData.csv", na.strings = "NA", stringsAsFactors = TR
 
 <!-- ### Manta/Grab split % recombine -->
 <!-- ```{r} -->
-<!-- sfBay <- sfBay %>%  -->
+<!-- sfBay <- sfBay %>% -->
 <!--  mutate(season = case_when(grepl("Nov|Dec|Jan|Feb|Mar", sampleID, ignore.case = TRUE) ~ "wet", -->
 <!--                             grepl("Aug|Sep", sampleID, ignore.case = TRUE) ~ "dry")) -->
 
 <!-- #split manta from grabs -->
-<!-- sfBayManta <- sfBay %>%  -->
+<!-- sfBayManta <- sfBay %>% -->
 <!--   #take out manta only -->
-<!--   filter(Sampling.apparatus == "Manta Trawl") %>%  -->
+<!--   filter(Sampling.apparatus == "Manta Trawl") %>% -->
 <!--   #extract string before space -->
 <!--   mutate(sampleIDSimple = sub(" .*", "", sampleID)) -->
 
 <!-- #extract grab sample only -->
-<!-- sfBayGrab <- sfBay %>%  -->
-<!--   filter(Sampling.apparatus == "1-L grab") %>%  -->
-<!--   #remove extraneous info  -->
-<!--   mutate(sampleIDSimple = sampleID,  -->
+<!-- sfBayGrab <- sfBay %>% -->
+<!--   filter(Sampling.apparatus == "1-L grab") %>% -->
+<!--   #remove extraneous info -->
+<!--   mutate(sampleIDSimple = sampleID, -->
 <!--          particle.L.master_grab = particle.L.master, -->
 <!--          unaligned.particle.L.master_grab = unaligned.particle.L.master, -->
-<!--          CF_grab = CF) %>%  -->
+<!--          CF_grab = CF) %>% -->
 <!--   dplyr::select(c(sampleIDSimple, particle.L.master_grab, unaligned.particle.L.master_grab, CF_grab)) -->
 
 <!-- #recombine manta and grab lengthwise -->
@@ -168,51 +182,119 @@ sfBay <- read.csv("data/SFBayData.csv", na.strings = "NA", stringsAsFactors = TR
 <!-- ``` -->
 
 Sample #CB9-Manta-11 Jan 18 should be omitted due to non-representative nature (in tidal front) (looks like it's already been removed?)
+	
+
+
+#### TRUE DATE MATCH
+The following code only matches manta and grab that were collectyed on the same days.
 ```{r}
-grab_with_dates <- readxl::read_excel("data/grab_with_dates.xlsx") %>% 
-   rename(x1M = Min.particle.size.um,
+#grab_with_dates <- read.csv("data/grab_with_dates.csv") %>% 
+# rename(sampleID_closestDate = ï..sampleID_closestDate) %>% 
+
+grab_with_dates <-  readxl::read_excel("data/grab_with_dates.xlsx") %>% 
+  rename(x1M = Min.particle.size.um,
          x2M = Max.particle.size.um) %>% 
   mutate(Sample.Type = "sample")
 
 # first replace the dash with space
-#library(stringr)
-#grab_with_dates$newDates <- str_replace(grab_with_dates$Date_string,"-", " ")
+grab_with_dates$newDates <- str_replace(grab_with_dates$Date_string,"-", " ")
 
 #then concat the station code with date to get the sampleID
-#dates <- grab_with_dates %>% 
- # mutate(sampleID = paste(`Station Code`, newDates))
+dates <- grab_with_dates %>% 
+  mutate(sampleID = paste(Station.Code, newDates)) %>% 
+  rename(grab_particles.L.blank.corrected = particles.L.blank.corrected) %>% 
+  rename(x1M_grab = x1M,
+         x2M_grab = x2M)
 
 #join with other dataset
-#new <- left_join(sfBay, dates, by = "sampleID")
+true_matches <- full_join(sfBay %>%  
+                   filter(Sampling.apparatus == "Manta Trawl") %>% 
+                   rename(manta_particles.L.blank.corrected = particles.L.blank.corrected,
+                          x1M_manta = x1M,
+                          x2M_manta = x2M,
+                          latitude_manta = latitude,
+                          longitude_manta = longitude),
+                 dates,
+                 by = "sampleID") %>% 
+  dplyr::select(c(sampleID, latitude_grab, longitude_grab, latitude_manta, longitude_manta, Station.Code, manta_particles.L.blank.corrected, grab_particles.L.blank.corrected, x1M_grab, x2M_grab, x1M_manta, x2M_manta, match)) %>% 
+  #annotate wet/dry
+  mutate(season = case_when(grepl("Nov|Dec|Jan|Feb|Mar", sampleID, ignore.case = TRUE) ~ "wet",
+                            grepl("Aug|Sep", sampleID, ignore.case = TRUE) ~ "dry"))
 
+#investiage matches
+true_matches %>% skim()
+```
+##### Match
+```{r}
+#view matched data
+my.formula <- y ~ x
+
+match_plot_true_season <- true_matches %>% 
+  drop_na(grab_particles.L.blank.corrected) %>% 
+  filter(grab_particles.L.blank.corrected > 0) %>% #remove 0's that shouldn't belong
+  ggplot(aes(x = manta_particles.L.blank.corrected, y = grab_particles.L.blank.corrected, color = season))+
+  geom_point()+
+  geom_smooth(method = "lm", se=FALSE, formula = my.formula) +
+   stat_poly_eq(formula = my.formula, 
+                aes(label = paste(..eq.label.., ..rr.label.., ..p.value.label.., sep = "~~~")), 
+                parse = TRUE) +         
+  scale_x_log10(name = "Manta Trawl blank-corrected particles/L",
+                breaks = scales::trans_breaks("log10", function(x) 10^x),
+        labels = scales::trans_format("log10", scales::math_format(10^.x))) +
+  scale_y_log10(name = "1L-grab blank-corrected particles/L") +
+  theme.type +
+   theme(legend.position = c(0.75,0.92),
+        legend.title = element_blank(),
+        legend.background = element_blank(),
+        legend.text = element_text(size = 12))
+
+
+match_plot_true_overall <- true_matches %>% 
+  drop_na(grab_particles.L.blank.corrected) %>% 
+  filter(grab_particles.L.blank.corrected > 0) %>% #remove 0's that shouldn't belong
+  ggplot(aes(x = manta_particles.L.blank.corrected, y = grab_particles.L.blank.corrected))+
+  geom_point()+
+  geom_smooth(method = "lm", se=FALSE, formula = my.formula) +
+   stat_poly_eq(formula = my.formula, 
+                aes(label = paste(..eq.label.., ..rr.label.., ..p.value.label.., sep = "~~~")), 
+                parse = TRUE) +         
+  scale_x_log10(name = "Manta Trawl blank-corrected particles/L",
+                breaks = scales::trans_breaks("log10", function(x) 10^x),
+        labels = scales::trans_format("log10", scales::math_format(10^.x))) +
+  scale_y_log10(name = "1L-grab blank-corrected particles/L") +
+  theme.type
+
+ggarrange(match_plot_true_season, match_plot_true_overall)
+
+```
+
+
+#### CLOSEST DATE MATCH
+The following code uses the nearest date to match manta and grab. In many cases, matches are one to several days apart.
+
+
+##### Matched Manta and Grab
+```{r}
 #remove grab samples that don't have dates
 sfBay_noGrab <- sfBay %>% 
   filter(Sampling.apparatus != "1-L grab")
 
-grab_with_dates_new <- grab_with_dates %>% dplyr::select(-c('Station Code', Date, particle_count, sample_volume_L))
+grab_with_dates_closest <- grab_with_dates %>% 
+  dplyr::select(-c(Station.Code, newDates, particle_count, sample_volume_L, Date_string, match, needs_fixing)) %>% 
+  rename("latitude" = "latitude_grab",
+         "longitude" = "longitude_grab")
 
-#bind
-sfBay2 <- rbind(sfBay_noGrab, grab_with_dates_new) %>% 
-  #annotate wet/dry
-  mutate(season = case_when(grepl("Nov|Dec|Jan|Feb|Mar", sampleID, ignore.case = TRUE) ~ "wet",
-                            grepl("Aug|Sep", sampleID, ignore.case = TRUE) ~ "dry"))
-```
-
-### Matched Manta and Grab
-```{r}
 #see matches
-matches <- left_join(sfBay_noGrab, grab_with_dates_new %>%
-                       rename("grab_particles.L.blank.corrected" = particles.L.blank.corrected),
-                     by ="sampleID") %>% 
+closestMatches <- full_join(sfBay_noGrab, grab_with_dates_closest %>%
+                       rename("grab_particles.L.blank.corrected" = particles.L.blank.corrected,
+                              "sampleID" = "sampleID_closestDate"),
+                     by = c("sampleID")) %>% 
   #annotate wet/dry
   mutate(season = case_when(grepl("Nov|Dec|Jan|Feb|Mar", sampleID, ignore.case = TRUE) ~ "wet",
                             grepl("Aug|Sep", sampleID, ignore.case = TRUE) ~ "dry"))
 
 #view matched data
-library(ggpmisc)
-my.formula <- y ~ x
-
-match_plot <- matches %>% 
+match_plot_closest_season <- closestMatches %>% 
   drop_na(grab_particles.L.blank.corrected) %>% 
   filter(grab_particles.L.blank.corrected > 0) %>% #remove 0's that shouldn't belong
   ggplot(aes(x = particles.L.blank.corrected, y = grab_particles.L.blank.corrected, color = season))+
@@ -225,23 +307,78 @@ match_plot <- matches %>%
                 breaks = scales::trans_breaks("log10", function(x) 10^x),
         labels = scales::trans_format("log10", scales::math_format(10^.x))) +
   scale_y_log10(name = "1L-grab blank-corrected particles/L") +
-  theme.type
-match_plot
+  theme.type +
+     theme(legend.position = c(0.7,0.92),
+        legend.title = element_blank(),
+        legend.background = element_blank(),
+        legend.text = element_text(size = 12))
+
+#view matched data overall
+match_plot_closest <- closestMatches %>% 
+  drop_na(grab_particles.L.blank.corrected) %>% 
+  filter(grab_particles.L.blank.corrected > 0) %>% #remove 0's that shouldn't belong
+  ggplot(aes(x = particles.L.blank.corrected, y = grab_particles.L.blank.corrected))+
+  geom_point()+
+  geom_smooth(method = "lm", se=FALSE, formula = my.formula) +
+   stat_poly_eq(formula = my.formula, 
+                aes(label = paste(..eq.label.., ..rr.label.., ..p.value.label.., sep = "~~~")), 
+                parse = TRUE) +         
+  scale_x_log10(name = "Manta Trawl blank-corrected particles/L",
+                breaks = scales::trans_breaks("log10", function(x) 10^x),
+        labels = scales::trans_format("log10", scales::math_format(10^.x))) +
+  scale_y_log10(name = "1L-grab blank-corrected particles/L") +
+  theme.type +
+     theme(legend.position = c(0.7,0.92),
+        legend.title = element_blank(),
+        #legend.background = element_rect(color = "black", fill = "white", linetype = "solid"),
+        legend.text = element_text(size = 12))
+
+ggarrange(match_plot_closest_season,match_plot_closest)
 ```
 ```{r}
-ggsave(plot = match_plot,
-       filename = "match_plot.jpeg",
+match_plots <- ggarrange(match_plot_true_overall, match_plot_true_season,
+          match_plot_closest, match_plot_closest_season,
+          labels = c("A", "B", "C", "D"),
+          ncol = 2,
+          nrow = 2)
+
+match_plots
+
+ggsave(plot = match_plots,
+       filename = "match_plots.jpeg",
        path = "output/figures/", 
-       width = 10, height = 6, units = "in",
+       width = 11, height = 9, units = "in",
        bg = "white",
        dpi = 300)
 ```
 
+## Rbind
+```{r}
+
+grab_with_dates_new <- grab_with_dates %>% 
+  mutate(sampleID = paste(Station.Code, newDates, "grab")) %>% 
+  dplyr::select(-c(Station.Code, newDates, particle_count, sample_volume_L, Date_string, match, needs_fixing, sampleID_closestDate)) %>% 
+  rename("latitude" = "latitude_grab",
+         "longitude" = "longitude_grab")
+
+#bind
+sfBay2 <- rbind(sfBay_noGrab, grab_with_dates_new) %>% 
+  #annotate wet/dry
+  mutate(season = case_when(grepl("Nov|Dec|Jan|Feb|Mar", sampleID, ignore.case = TRUE) ~ "wet",
+                            grepl("Aug|Sep", sampleID, ignore.case = TRUE) ~ "dry"))
+```
 
 ## Plastic particle correction
 10 particles were analyzed for every color/morphology combo. 68% of particles analyzed by Raman/FTIR were plastic in surface water and 23% in fish samples were plastic.
-```{r}
 
+```{r}
+water_correction_factor <- 0.68 #68% of particles were plastic
+fish_correction_factor <- 0.23 #23% of particles were plastic in fish
+
+sfBay3 <- sfBay2 %>% 
+  mutate(particles.L.blank.corrected.particle.corrected = case_when(
+    sample.matrix == "water" ~ particles.L.blank.corrected * water_correction_factor)) %>% 
+  mutate(particles.fish.blank.corrected.particle.corrected = case_when(sample.matrix == "fish" ~ particles.fish.blank.corrected * fish_correction_factor))
 ```
 
 
@@ -269,18 +406,23 @@ CFfnx = function(a = alpha, #default alpha from Koelmans et al (2020)
 
 
 # correct aquatic concentrations for SF Bay
-sfBay_aligned <- sfBay2 %>% 
+sfBay_aligned <- sfBay3 %>% 
   mutate(CF = case_when(
-    System == "Estuary" ~ CFfnx(a = alpha.marine, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
-   is.na(System) ~ CFfnx(a = alpha.freshwater, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set))) %>%  #create new column with correction factor 
-  mutate(particle.L.master = particles.L.blank.corrected * CF) %>% 
-  rename(unaligned.particle.L.master = particles.L.blank.corrected) %>% 
-  filter(unaligned.particle.L.master > 0) %>%  #remove blanks. should convert to 1/2 LOQ...
+    sample.matrix.specific == "surface water" ~ CFfnx(a = alpha.marine, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+   sample.matrix.specific == "sediment" ~ CFfnx(a = alpha.sediment, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+   sample.matrix.specific == "wastewater" ~ CFfnx(a = alpha.wastewater, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+   sample.matrix.specific == "stormwater" ~ CFfnx(a = alpha.stormwater, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+   sample.matrix == "fish" ~ CFfnx(a = alpha.fish, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),)) %>% 
+  mutate(particle.L.master = particles.L.blank.corrected.particle.corrected * CF,
+         particle.fish.master = particles.fish.blank.corrected.particle.corrected * CF,
+         particles.kg.master = particles.kg.blank.corrected * CF) %>% 
+  rename(unaligned.particle.L.master = particles.L.blank.corrected.particle.corrected) %>% 
+  #filter(unaligned.particle.L.master > 0) %>%  #remove blanks. should convert to 1/2 LOQ...
   mutate(source = "SFEI") %>% 
   mutate(Reference = "Zhu et. al 2021") %>% 
   rename(Sampling.location = general.location) %>% 
-  dplyr::select(-c(particles.kg.blank.corrected,
-                   particles.fish.blank.corrected)) %>% 
+  #dplyr::select(-c(particles.kg.blank.corrected,
+   #                particles.fish.blank.corrected)) %>% 
   mutate(compartment = case_when(
     System == "Lake" ~ "freshwater",
     System == "River" ~ "freshwater",
@@ -297,7 +439,7 @@ sfBay_aligned <- sfBay2 %>%
 
 ### Boxplot SFEI
 ```{r}
-SFEI_mesh_matrix <- sfBay_new %>% 
+SFEI_mesh_matrix <- sfBay_aligned %>% 
   filter(source == "SFEI") %>% 
   #filter(sample.matrix.specific == "surface water") %>% 
   drop_na(particle.L.master) %>% 
@@ -439,6 +581,7 @@ sensitivity.analysis
 sfBayECDF_sensitivity <- sensitivity %>% 
   filter(source == "SFEI") %>% 
   filter(sample.matrix.specific == "surface water") %>% 
+  filter(particle.L.master > 0) %>% 
   #just select concentrations
   dplyr::select(c(Conc, conc.plus1, conc.plus2, conc.plus3, conc.minus1, conc.minus2, conc.minus3)) %>% 
   #make long data
@@ -516,6 +659,7 @@ ggsave(plot = sfBayECDF_sensitivity,
 sfBayECDF_sensitivity <- sensitivity %>% 
   filter(source == "SFEI") %>% 
   filter(sample.matrix.specific == "surface water") %>% 
+  filter(particle.L.master > 0) %>% 
   #just select concentrations
   #dplyr::select(c(Conc, conc.plus1, conc.plus2, conc.plus3, conc.minus1, conc.minus2, conc.minus3)) %>% 
   #make long data
@@ -580,11 +724,12 @@ sfBayECDF_sensitivity <- sensitivity %>%
 sfBayECDF_sensitivity
 ```
 ##### Wet Vs Dry
-Note that grab samples don't have dates so can't annotate wet/dry!
+
 ```{r}
 #ECDF by System
 sfBayECDF_wetDry <- sfBay_new %>% 
   filter(source == "SFEI") %>% 
+  filter(particle.L.master > 0) %>% 
   filter(sample.matrix.specific == "surface water"#,
          #Sampling.apparatus == "Manta Trawl"
          ) %>% 
@@ -594,7 +739,7 @@ sfBayECDF_wetDry <- sfBay_new %>%
   #unaligned
   #stat_ecdf(aes(x = unaligned.particle.L.master),geom = "step", linetype = 'solid', alpha = 0.2, size = 2.5) +
   #color
-  scale_color_manual(values = hcl(h = c(60,240,60,240),c = 100, l = 65, alpha=c(0.4,0.4,1,1), fixup = TRUE)) +
+  scale_color_manual(values = hcl(h = c(20,190,65,245),c = 100, l = 65)) +
   #scale_alpha_manual(name = "alignment",
    #                 values = c(0.2,1)) +
   geom_vline(xintercept = Threshold1_food, linetype = 'dashed', color = "#85a17d", size = 1) +
@@ -614,9 +759,8 @@ sfBayECDF_wetDry <- sfBay_new %>%
   coord_trans(x = "log10") +
   scale_x_continuous(breaks = scales::trans_breaks("log10", function(x) 10^x),labels = comma_signif)+
   #annotation_logticks(sides = "b")+ #log scale rick marks on bottom
-  theme.type #+
- # theme(legend.title = element_blank(),
-  #      legend.position = "none")
+  theme.type +
+  theme(legend.position = "top")
   #labs(title = "Global Surface Water Marine Microplastics Concentrations",
    #    subtitle = paste("Particles/L corrected to:",x1D_set, "to", x2D_set, "um"),
     #   caption = paste("Concentration data from Adams et al (2019): 23 studies, 57 sampling locations, n = 377; corrected for size ranges. Alpha = ",alpha))
@@ -759,6 +903,7 @@ ggsave(plot =sfBayECDF,
 # need to pivot wide data into long format to easily plot
 sfBayECDF_alignedXtechnique <- sfBay_new %>% 
   filter(source == "SFEI") %>% 
+  filter(particle.L.master > 0) %>% 
   filter(sample.matrix.specific == "surface water") %>% 
   dplyr::select(c(sampleID, unaligned.particle.L.master, particle.L.master, Sampling.apparatus)) %>% 
   pivot_longer(-c(sampleID, Sampling.apparatus), names_to = "alignment", values_to = "concentration") %>% 
@@ -809,3 +954,100 @@ ggsave(plot = sfBayECDF_alignedXtechnique,
        bg = "white",
        dpi = 300)
 ```
+
+#Compare fish concentrations and ambient
+Two-Way ANOVA needed!!
+```{r}
+#group by location name and compare averages/sds by ambient and fish
+all_data <- sfBay_aligned %>%
+  filter(!Sampling.apparatus == "1-L grab") %>% 
+  mutate(particles.any = case_when(
+    sample.matrix == "water" ~ particle.L.master,
+    sample.matrix == "fish" ~ particle.fish.master,
+    sample.matrix == "sediment" ~ particles.kg.master
+    ))
+  
+all_data_summary <- all_data %>% 
+  group_by(Sampling.location, sample.matrix) %>% 
+  summarize(mean = mean(particles.any),
+            sd = sd(particles.any),
+            n = n())
+
+
+all_data_summary %>% 
+  drop_na() %>% 
+  ggplot(aes(x = Sampling.location,y = mean, color = sample.matrix))+
+  geom_point() +
+  scale_y_log10()
+```
+## ANOVA
+```{r}
+ANOVA <- aov(data = all_data, particles.any ~ sample.matrix * Sampling.location)
+
+anova_table <- summary(ANOVA)
+
+new <- all_data %>%  filter(Sampling.location %in% c("South Bay", "Lower South Bay", "Central Bay"))
+
+library(apaTables)
+apa.aov.table(dv = particles.any,
+               iv1 = sample.matrix,
+               iv2 = Sampling.location,
+               data = new,
+               filename = "output/ANOVA.doc",
+             #  show.marginal.means = TRUE
+               )
+```
+## Boxplots by matrix
+```{r}
+
+violin_matrix <- all_data %>% 
+  drop_na(Sampling.location) %>% 
+   filter(!Sampling.apparatus == "1-L grab") %>% 
+  filter(Sampling.location %in% c("South Bay", "Lower South Bay", "Central Bay")) %>% 
+  mutate(location = fct_reorder(Sampling.location, desc(particles.any))) %>%
+  ggplot(aes(y = location, x = particles.any, fill = sample.matrix)) +
+  geom_violin(position = "identity", trim = FALSE) +
+  geom_boxplot(width=0.1, color = "white", position = "identity") +
+  scale_fill_futurama(name = "Sample Matrix",
+                       labels = c("Fish (particles/fish)",
+                                  "Sediment (particles/kg)",
+                                  "Surface Water (particles/L)")) +
+  scale_x_log10(name = "Aligned Particle Concentrations (matrix-dependent)",
+                  breaks = scales::trans_breaks("log10", function(x) 10^x),
+        labels = scales::trans_format("log10", scales::math_format(10^.x))) +
+  theme.type +
+  theme(legend.position = "bottom",
+        axis.title.y = element_blank())
+
+
+ggsave(plot = violin_matrix,
+       filename = "violin_matrix.jpeg",
+       path = "output/figures/", 
+       width = 11, height = 9, units = "in",
+       bg = "white",
+       dpi = 300)
+
+violin_matrix
+```
+
+```{r}
+
+sfBay_aligned %>% 
+  filter(!sampleID == "CB9 Jan 11 Total") %>% 
+  filter(!Sampling.apparatus == "1-L grab") %>% 
+  mutate(scaled.particle.L.master = scale(particle.L.master),
+         scaled.fish.master = scale(particle.fish.master),
+         scaled.particles.kg.master = scale(particles.kg.master)) %>% 
+  mutate(particles.any.scaled = case_when(
+    sample.matrix == "water" ~ scaled.particle.L.master,
+    sample.matrix == "fish" ~ scaled.fish.master,
+    sample.matrix == "sediment" ~ scaled.particles.kg.master
+    )) %>% 
+  drop_na(Sampling.location) %>% 
+ ggplot(aes(y = particles.any.scaled, x = Sampling.location, color = sample.matrix)) +
+  geom_boxplot() +
+  #scale_y_log10()+
+  theme.type 
+
+```
+
