@@ -1,0 +1,22 @@
+"","aboveThreshold","locationNew","total","n_Conc","n_conc.lower.95","n_conc.upper.95","rel.freq_Conc","rel.freq_conc.lower.95","rel.freq_conc.upper.95"
+"1","below Threshold 1","Central Bay",25,8,11,3,"32%","44%","12%"
+"2","below Threshold 1","general",13,6,7,4,"46%","54%","31%"
+"3","below Threshold 1","Lower South Bay",10,6,6,1,"60%","60%","10%"
+"4","below Threshold 1","National Marine Sanctuary",44,25,25,21,"57%","57%","48%"
+"5","below Threshold 1","South Bay",15,5,8,3,"33%","53%","20%"
+"6","above Threshold 1","Central Bay",25,4,1,6,"16%","4%","24%"
+"7","above Threshold 1","general",13,1,NA,3,"8%",NA,"23%"
+"8","above Threshold 1","South Bay",15,3,NA,3,"20%",NA,"20%"
+"9","above Threshold 1","Lower South Bay",10,NA,NA,5,NA,NA,"50%"
+"10","above Threshold 1","National Marine Sanctuary",44,NA,NA,4,NA,NA,"9%"
+"11","above Threshold 2","Central Bay",25,NA,1,1,NA,"4%","4%"
+"12","above Threshold 2","South Bay",15,NA,NA,2,NA,NA,"13%"
+"13","above Threshold 3","Central Bay",25,2,5,2,"8%","20%","8%"
+"14","above Threshold 3","National Marine Sanctuary",44,2,10,NA,"5%","23%",NA
+"15","above Threshold 3","Lower South Bay",10,NA,2,NA,NA,"20%",NA
+"16","above Threshold 3","South Bay",15,NA,3,NA,NA,"20%",NA
+"17","above Threshold 4","Central Bay",25,11,7,13,"44%","28%","52%"
+"18","above Threshold 4","general",13,6,6,6,"46%","46%","46%"
+"19","above Threshold 4","Lower South Bay",10,4,2,4,"40%","20%","40%"
+"20","above Threshold 4","National Marine Sanctuary",44,17,9,19,"39%","20%","43%"
+"21","above Threshold 4","South Bay",15,7,4,7,"47%","27%","47%"

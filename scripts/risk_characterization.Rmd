@@ -624,22 +624,31 @@ sfBay_aligned <- sfBay3 %>%
 ```{r}
 SFEI_mesh_matrix <- sfBay_aligned %>% 
   filter(source == "SFEI") %>% 
+  filter(particle.L.master >0,
+         unaligned.particle.L.master > 0) %>% 
+  mutate(apparatus.matrix = paste0(sample.matrix.specific, " (", Sampling.apparatus,")")) %>% 
   #filter(sample.matrix.specific == "surface water") %>% 
   drop_na(particle.L.master) %>% 
-  ggplot(aes(x = sample.matrix.specific))+
+   dplyr::select(c(sampleID, unaligned.particle.L.master, particle.L.master,apparatus.matrix,
+                   #Sampling.apparatus, sample.matrix.specific
+                   )) %>% 
+  pivot_longer(-c(sampleID, apparatus.matrix,
+                  #Sampling.apparatus, sample.matrix.specific
+                  ), names_to = "alignment", values_to = "concentration") %>% 
+  #rename for easy plotting
+  mutate(alignment_pretty = case_when(alignment == "particle.L.master" ~ "Aligned",
+                                      alignment == "unaligned.particle.L.master" ~ "Unaligned")) %>% 
+## PLOTTING ##
+  ggplot(aes(y = concentration, x = apparatus.matrix, color = alignment_pretty)) +
   #aligned
-  geom_boxplot(aes(y = particle.L.master),
-               alpha = 0.4, notch = TRUE) +
-  geom_jitter(aes(y = particle.L.master, color = Sampling.apparatus),
-              width = 0.15) +
-  #unaligned
- # geom_boxplot(aes(y = unaligned.particle.L.master),
-  #             alpha = 0.4, notch = TRUE) +
-  geom_jitter(aes(y = unaligned.particle.L.master, color = Sampling.apparatus),
-              alpha = 0.3,
-              width = 0.15) +
-
-  scale_color_d3(name = "Sampling Apparatus") +
+  geom_boxplot(notch = TRUE, width = 1) +
+ # ggbeeswarm::geom_quasirandom()+
+  geom_point(position=position_jitterdodge())+
+  
+  scale_color_manual(name = "Alignment",
+                     values = hcl(c(0, 240),100,65, alpha=c(1,0.6)),
+                     labels = c("Aligned (1 to 5,000 μm)",
+                                "Unaligned")) +
   #scale_color_manual(name = "Sampling Apparatus",values = wes_palette("Darjeeling1"))+
    # geom_hline(yintercept = Threshold1, linetype = 'dashed', color = 'green', size = 1) +
    # geom_hline(yintercept = Threshold2, linetype = 'dashed', color = 'yellow', size = 1) +
@@ -649,20 +658,34 @@ SFEI_mesh_matrix <- sfBay_aligned %>%
   # geom_text(label = "Threshold 2", color = 'yellow', x = Threshold2, y = 0.22, size = 6)+
   # geom_text(label = "Threshold 3", color = 'orange', x = Threshold3, y = 0.35, size = 6)+
   # geom_text(label = "Threshold 4", color = 'red', x = Threshold4, y = 0.45, size = 6)+
-  scale_y_log10(breaks = scales::trans_breaks("log10", function(y) 10^y),labels = comma_signif)+
-  annotation_logticks(sides = "b")+ #log scale rick marks on bottom
-  ylab(paste0("Particles/L (" ,x1D_set, " to ", x2D_set, " μm)"))+
+    scale_y_log10(breaks = scales::log_breaks(n = 12),labels = comma_signif,
+                   limits = c(1e-6, 10000))+
+   # annotation_logticks(sides = "b")+ #log scale rick marks on bottom
+  ylab(paste0("Particles/L"))+
   theme.type +
-  labs(title = "San Francisco Bay Surface Water Marine Microplastics Concentrations",
-       subtitle = paste("Particles/L corrected to:",x1D_set, "to", x2D_set, "um"),
+  #labs(title = "San Francisco Bay Surface Water Marine Microplastics Concentrations",
+      # subtitle = paste("Particles/L corrected to:",x1D_set, "to", x2D_set, "um"),
       # caption = paste("Concentration data from Zhu et al (2021): 29 sampling locations, n = 136; corrected for size ranges. Alpha = ",alpha.marine)
-      )+
+   #   )+
   theme(
     plot.title = element_text(hjust = 0.5, size = 18),
         plot.subtitle = element_text(hjust = 0.5, size = 14),
-    axis.title.x = element_blank())
+    axis.title.x = element_blank(),
+    legend.title = element_blank(),
+    legend.position = c(0.8,0.8),
+    legend.text = element_text(size = 12, face = "bold"),
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.key.size = unit(1.3, 'cm'))
 
 SFEI_mesh_matrix
+```
+```{r}
+ggsave(plot = SFEI_mesh_matrix,
+       filename = "SFEI_mesh_matrix.jpg",
+       path = "output/figures/", 
+       width = 10, height = 6, units = "in",
+       bg = "white",
+       dpi = 300)
 ```
 
 # SFBay Exceedances
@@ -951,6 +974,110 @@ write.csv(sensitivity.analysis.manta ,
           )
 ```
 
+##### Group-by Location
+###### MANTA and GRAB
+```{r}
+#count samples
+count.location <- sensitivity %>% 
+  filter(source == "SFEI") %>% 
+  filter(sample.matrix.specific == "surface water") %>% 
+  group_by(locationNew) %>% 
+  summarize(total = n())
+
+count.location
+```
+
+```{r}
+sensitivity.analysis.location <- sensitivity %>% 
+  filter(source == "SFEI") %>% 
+  filter(sample.matrix.specific == "surface water") %>% 
+  #just select concentrations
+  dplyr::select(c(Conc, #conc.upper.68,
+                  conc.upper.95, 
+                  #conc.upper.99, conc.lower.68, 
+                  conc.lower.95, 
+                  #conc.lower.99,
+                  locationNew)) %>% 
+  #make long data
+  pivot_longer(starts_with("conc")) %>% 
+  mutate(aboveThreshold = factor(case_when(
+    value < Threshold1_food ~ "below Threshold 1",
+    value >= Threshold1_food & value < Threshold2_food ~ "above Threshold 1",
+    value >= Threshold2_food & value < Threshold3_food ~ "above Threshold 2",
+    value >= Threshold3_food & value < Threshold4_food ~ "above Threshold 3",
+    value >= Threshold4_food ~ "above Threshold 4"
+  ))) %>% 
+  group_by(aboveThreshold, name, locationNew) %>%
+  dplyr::summarize(n = n()) %>% 
+  left_join(count.location, by = "locationNew") %>% 
+  mutate(rel.freq = paste0(round(100 *(n/total)),"%")) %>% 
+  pivot_wider(names_from = "name", values_from = c("n", "rel.freq")) %>% 
+  mutate(aboveThreshold = factor(aboveThreshold, levels = c("below Threshold 1", "above Threshold 1", "above Threshold 2", "above Threshold 3", "above Threshold 4"))) %>% 
+  arrange(aboveThreshold)
+  
+
+sensitivity.analysis.location
+```
+
+###### EXPORT EXCEEDANCES
+```{r}
+write.csv(sensitivity.analysis.location ,
+          "output/data/sensitivity.analysis.location.csv"
+          )
+```
+
+###### MANTA only
+```{r}
+#count samples
+manta.count.location <- sensitivity %>% 
+  filter(source == "SFEI") %>% 
+  filter(sample.matrix.specific == "surface water") %>% 
+  filter(Sampling.apparatus == "Manta Trawl") %>%
+  group_by(locationNew) %>% 
+  summarize(total = n())
+
+manta.count.location
+```
+
+```{r}
+sensitivity.analysis.manta.location <- sensitivity %>% 
+  filter(source == "SFEI") %>% 
+  filter(sample.matrix.specific == "surface water") %>% 
+  filter(Sampling.apparatus == "Manta Trawl") %>%
+  #just select concentrations
+  dplyr::select(c(Conc, #conc.upper.68,
+                  conc.upper.95, 
+                  #conc.upper.99, conc.lower.68, 
+                  conc.lower.95, 
+                  #conc.lower.99,
+                  locationNew)) %>% 
+  #make long data
+  pivot_longer(starts_with("conc")) %>% 
+  mutate(aboveThreshold = factor(case_when(
+    value < Threshold1_food ~ "below Threshold 1",
+    value >= Threshold1_food & value < Threshold2_food ~ "above Threshold 1",
+    value >= Threshold2_food & value < Threshold3_food ~ "above Threshold 2",
+    value >= Threshold3_food & value < Threshold4_food ~ "above Threshold 3",
+    value >= Threshold4_food ~ "above Threshold 4"
+  ))) %>% 
+  group_by(aboveThreshold, name, locationNew) %>%
+  dplyr::summarize(n = n()) %>% 
+  left_join(manta.count.location, by = "locationNew") %>% 
+  mutate(rel.freq = paste0(round(100 *(n/total)),"%")) %>% 
+  pivot_wider(names_from = "name", values_from = c("n", "rel.freq")) %>% 
+  mutate(aboveThreshold = factor(aboveThreshold, levels = c("below Threshold 1", "above Threshold 1", "above Threshold 2", "above Threshold 3", "above Threshold 4"))) %>% 
+  arrange(aboveThreshold)
+  
+
+sensitivity.analysis.manta.location
+```
+
+###### EXPORT EXCEEDANCES
+```{r}
+write.csv(sensitivity.analysis.manta.location ,
+          "output/data/sensitivity.analysis.manta.location.csv"
+          )
+```
 
 ##### Manta vs. Grab
 
@@ -1280,8 +1407,8 @@ all_data_summary %>%
   geom_point() +
   scale_y_log10()
 ```
-## ANOVA
-```{r}
+## 
+```{r}ANOVA
 ANOVA <- aov(data = all_data, particles.any ~ sample.matrix * Sampling.location)
 
 anova_table <- summary(ANOVA)
