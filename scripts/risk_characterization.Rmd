@@ -337,18 +337,18 @@ match_plot_closest <- closestMatches %>%
 ggarrange(match_plot_closest_season,match_plot_closest)
 ```
 ```{r}
-match_plots <- ggarrange(match_plot_true_overall, match_plot_true_season,
-          match_plot_closest, match_plot_closest_season,
-          labels = c("A", "B", "C", "D"),
+match_plots <- ggarrange(match_plot_true_overall, #match_plot_true_season,
+          match_plot_closest, #match_plot_closest_season,
+          labels = c("A", "B"),#, "C", "D"),
           ncol = 2,
-          nrow = 2)
+          nrow = 1)
 
 match_plots
 
 ggsave(plot = match_plots,
        filename = "match_plots.jpeg",
        path = "output/figures/", 
-       width = 11, height = 9, units = "in",
+       width = 9, height = 5, units = "in",
        bg = "white",
        dpi = 300)
 ```
@@ -932,6 +932,7 @@ ggsave(plot = sfBayECDF_sensitivity,
 ```
 
 ##### MANTA only
+#####Food Dilution
 ```{r}
 #count samples
 manta.count <- sensitivity %>% 
@@ -974,7 +975,51 @@ write.csv(sensitivity.analysis.manta ,
           )
 ```
 
-##### Group-by Location
+#####Tissue Translocation
+```{r}
+#count samples
+manta.count <- sensitivity %>% 
+  filter(source == "SFEI") %>% 
+  filter(sample.matrix.specific == "surface water") %>% 
+  filter(Sampling.apparatus == "Manta Trawl") %>%
+  summarize(n())
+
+
+sensitivity.analysis.manta.oxidative <- sensitivity %>% 
+  filter(source == "SFEI") %>% 
+  filter(sample.matrix.specific == "surface water") %>% 
+  filter(Sampling.apparatus == "Manta Trawl") %>%
+  #just select concentrations
+  dplyr::select(c(Conc, conc.upper.68, conc.upper.95, conc.upper.99, conc.lower.68, conc.lower.95, conc.lower.99)) %>% 
+  #make long data
+  pivot_longer(everything()) %>% 
+  mutate(aboveThreshold = factor(case_when(
+    value < Threshold1_oxidative.stress ~ "below Threshold 1",
+    value >= Threshold1_oxidative.stress & value < Threshold2_oxidative.stress ~ "above Threshold 1",
+    value >= Threshold2_oxidative.stress & value < Threshold3_oxidative.stress ~ "above Threshold 2",
+    value >= Threshold3_oxidative.stress & value < Threshold4_oxidative.stress ~ "above Threshold 3",
+    value >= Threshold4_oxidative.stress ~ "above Threshold 4"
+  ))) %>% 
+  group_by(aboveThreshold, name) %>%
+  dplyr::summarize(n = n()) %>% 
+  mutate(rel.freq = paste0(round(100 *(n/manta.count[1,]),1),"%")) %>% 
+  pivot_wider(names_from = "name", values_from = c("n", "rel.freq")) %>% 
+  mutate(aboveThreshold = factor(aboveThreshold, levels = c("below Threshold 1", "above Threshold 1", "above Threshold 2", "above Threshold 3", "above Threshold 4"))) %>% 
+  arrange(aboveThreshold)
+  
+
+sensitivity.analysis.manta.oxidative
+```
+
+###### EXPORT EXCEEDANCES
+```{r}
+write.csv(sensitivity.analysis.manta.oxidative ,
+          "output/data/surface_water_exceedances_sensitivity_analysis_manta_oxidative.csv"
+          )
+```
+
+#### Group-by Location
+##### Food Dilution
 ###### MANTA and GRAB
 ```{r}
 #count samples
@@ -1078,6 +1123,111 @@ write.csv(sensitivity.analysis.manta.location ,
           "output/data/sensitivity.analysis.manta.location.csv"
           )
 ```
+##### Oxidative Stress
+###### MANTA and GRAB
+```{r}
+#count samples
+count.location <- sensitivity %>% 
+  filter(source == "SFEI") %>% 
+  filter(sample.matrix.specific == "surface water") %>% 
+  group_by(locationNew) %>% 
+  summarize(total = n())
+
+count.location
+```
+
+```{r}
+sensitivity.analysis.location.oxidative <- sensitivity %>% 
+  filter(source == "SFEI") %>% 
+  filter(sample.matrix.specific == "surface water") %>% 
+  #just select concentrations
+  dplyr::select(c(Conc, #conc.upper.68,
+                  conc.upper.95, 
+                  #conc.upper.99, conc.lower.68, 
+                  conc.lower.95, 
+                  #conc.lower.99,
+                  locationNew)) %>% 
+  #make long data
+  pivot_longer(starts_with("conc")) %>% 
+  mutate(aboveThreshold = factor(case_when(
+    value < Threshold1_oxidative.stress ~ "below Threshold 1",
+    value >= Threshold1_oxidative.stress & value < Threshold2_oxidative.stress ~ "above Threshold 1",
+    value >= Threshold2_oxidative.stress & value < Threshold3_oxidative.stress ~ "above Threshold 2",
+    value >= Threshold3_oxidative.stress & value < Threshold4_oxidative.stress ~ "above Threshold 3",
+    value >= Threshold4_oxidative.stress ~ "above Threshold 4"
+  ))) %>% 
+  group_by(aboveThreshold, name, locationNew) %>%
+  dplyr::summarize(n = n()) %>% 
+  left_join(count.location, by = "locationNew") %>% 
+  mutate(rel.freq = paste0(round(100 *(n/total)),"%")) %>% 
+  pivot_wider(names_from = "name", values_from = c("n", "rel.freq")) %>% 
+  mutate(aboveThreshold = factor(aboveThreshold, levels = c("below Threshold 1", "above Threshold 1", "above Threshold 2", "above Threshold 3", "above Threshold 4"))) %>% 
+  arrange(aboveThreshold)
+  
+
+sensitivity.analysis.location.oxidative
+```
+
+###### EXPORT EXCEEDANCES
+```{r}
+write.csv(sensitivity.analysis.location.oxidative,
+          "output/data/sensitivity.analysis.location.oxidative.csv"
+          )
+```
+
+###### MANTA only
+```{r}
+#count samples
+manta.count.location <- sensitivity %>% 
+  filter(source == "SFEI") %>% 
+  filter(sample.matrix.specific == "surface water") %>% 
+  filter(Sampling.apparatus == "Manta Trawl") %>%
+  group_by(locationNew) %>% 
+  summarize(total = n())
+
+manta.count.location
+```
+
+```{r}
+sensitivity.analysis.manta.location.oxidative <- sensitivity %>% 
+  filter(source == "SFEI") %>% 
+  filter(sample.matrix.specific == "surface water") %>% 
+  filter(Sampling.apparatus == "Manta Trawl") %>%
+  #just select concentrations
+  dplyr::select(c(Conc, #conc.upper.68,
+                  conc.upper.95, 
+                  #conc.upper.99, conc.lower.68, 
+                  conc.lower.95, 
+                  #conc.lower.99,
+                  locationNew)) %>% 
+  #make long data
+  pivot_longer(starts_with("conc")) %>% 
+  mutate(aboveThreshold = factor(case_when(
+    value < Threshold1_oxidative.stress ~ "below Threshold 1",
+    value >= Threshold1_oxidative.stress & value < Threshold2_oxidative.stress ~ "above Threshold 1",
+    value >= Threshold2_oxidative.stress & value < Threshold3_oxidative.stress ~ "above Threshold 2",
+    value >= Threshold3_oxidative.stress & value < Threshold4_oxidative.stress ~ "above Threshold 3",
+    value >= Threshold4_oxidative.stress ~ "above Threshold 4"
+  ))) %>% 
+  group_by(aboveThreshold, name, locationNew) %>%
+  dplyr::summarize(n = n()) %>% 
+  left_join(manta.count.location, by = "locationNew") %>% 
+  mutate(rel.freq = paste0(round(100 *(n/total)),"%")) %>% 
+  pivot_wider(names_from = "name", values_from = c("n", "rel.freq")) %>% 
+  mutate(aboveThreshold = factor(aboveThreshold, levels = c("below Threshold 1", "above Threshold 1", "above Threshold 2", "above Threshold 3", "above Threshold 4"))) %>% 
+  arrange(aboveThreshold)
+  
+
+sensitivity.analysis.manta.location.oxidative
+```
+
+###### EXPORT EXCEEDANCES
+```{r}
+write.csv(sensitivity.analysis.manta.location.oxidative ,
+          "output/data/sensitivity.analysis.manta.location.oxidative.csv"
+          )
+```
+
 
 ##### Manta vs. Grab
 

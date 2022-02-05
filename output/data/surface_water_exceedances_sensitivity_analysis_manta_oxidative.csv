@@ -1,0 +1,3 @@
+"","aboveThreshold","n_conc.upper.95","n_conc.upper.99","n_Conc","n_conc.lower.68","n_conc.lower.95","n_conc.lower.99","n_conc.upper.68","rel.freq_conc.upper.95","rel.freq_conc.upper.99","rel.freq_Conc","rel.freq_conc.lower.68","rel.freq_conc.lower.95","rel.freq_conc.lower.99","rel.freq_conc.upper.68"
+"1","below Threshold 1",57,57,58,58,58,58,58,"98.3%","98.3%","100%","100%","100%","100%","100%"
+"2","above Threshold 1",1,1,NA,NA,NA,NA,NA,"1.7%","1.7%",NA,NA,NA,NA,NA
