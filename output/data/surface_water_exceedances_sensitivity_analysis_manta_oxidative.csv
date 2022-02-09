@@ -1,3 +1,6 @@
-"","aboveThreshold","n_conc.upper.95","n_conc.upper.99","n_Conc","n_conc.lower.68","n_conc.lower.95","n_conc.lower.99","n_conc.upper.68","rel.freq_conc.upper.95","rel.freq_conc.upper.99","rel.freq_Conc","rel.freq_conc.lower.68","rel.freq_conc.lower.95","rel.freq_conc.lower.99","rel.freq_conc.upper.68"
-"1","below Threshold 1",57,57,58,58,58,58,58,"98.3%","98.3%","100%","100%","100%","100%","100%"
-"2","above Threshold 1",1,1,NA,NA,NA,NA,NA,"1.7%","1.7%",NA,NA,NA,NA,NA
+"","aboveThreshold","Conc","conc.lower.68","conc.lower.95","conc.lower.99","conc.upper.68","conc.upper.95","conc.upper.99","Conc.percent","conc.lower.95.percent","conc.upper.95.percent"
+"1","belowThreshold1",58,58,58,58,58,57,57,1,1,0.982758620689655
+"2","aboveThreshold1",0,0,0,0,0,1,1,0,0,0.0172413793103448
+"3","aboveThreshold2",0,0,0,0,0,0,0,0,0,0
+"4","aboveThreshold3",0,0,0,0,0,0,0,0,0,0
+"5","aboveThreshold4",0,0,0,0,0,0,0,0,0,0

@@ -46,16 +46,29 @@ library(ggpmisc)
 ```{r}
 ###### Choose concentration alignment parameters####
 alpha.stormwater <- 1.87
-alpha.stormwater.sd <- 0.13
+alpha.stormwater.se <- 0.13
+alpha.stormwater.upper.95 <- alpha.stormwater + 1.96 * alpha.stormwater.se
+alpha.stormwater.lower.95 <- alpha.stormwater - 1.96 * alpha.stormwater.se
+
 alpha.marine = 2.00 #based on SFEI dataset
-alpha.marine.sd <- 0.15 #based on SFEI dataset
+alpha.marine.se <- 0.15 #based on SFEI dataset
+alpha.marine.upper.95 <- alpha.marine + 1.96 * alpha.marine.se
+alpha.marine.lower.95 <- alpha.marine - 1.96 * alpha.marine.se
+
 alpha.wastewater <- 1.58
-alpha.wastewater.sd <- 0.11
+alpha.wastewater.se <- 0.11
+alpha.wastewater.upper.95 <- alpha.wastewater + 1.96 * alpha.wastewater.se
+alpha.wastewater.lower.95 <- alpha.wastewater - 1.96 * alpha.wastewater.se
+
 alpha.sediment <- 2.10
-alpha.sediment.sd <- 0.12
-alpha.wastewater.sd <- 0.11
+alpha.sediment.se <- 0.12
+alpha.sediment.upper.95 <- alpha.sediment + 1.96 * alpha.sediment.se
+alpha.sediment.lower.95 <- alpha.sediment - 1.96 * alpha.sediment.se
+
 alpha.fish <- 1.75
-alpha.fish.sd <- 0.17
+alpha.fish.se <- 0.17
+alpha.fish.upper.95 <- alpha.fish + 1.96 * alpha.fish.se
+alpha.fish.lower.95 <- alpha.fish - 1.96 * alpha.fish.se
 
 #based on Kooi
 alpha.freshwater = 2.64 #table s4 from Kooi et al 2021 for freshwater surface water. length
@@ -80,7 +93,7 @@ Threshold2_food = 3.0 / AF
 Threshold3_food = 5.0 / AF
 Threshold4_food = 34 / AF
 ## 95% CI's ##
-Threshold2_food_lcl = 0.3 / AF
+Threshold2_food_lcl = 0.34 / AF
 Threshold2_food_hcl = 66 / AF
 Threshold3_food_lcl = 0.4 / AF
 Threshold3_food_hcl = 220 / AF
@@ -594,7 +607,17 @@ sfBay_aligned <- sfBay3 %>%
    sample.matrix.specific == "sediment" ~ CFfnx(a = alpha.sediment, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
    sample.matrix.specific == "wastewater" ~ CFfnx(a = alpha.wastewater, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
    sample.matrix.specific == "stormwater" ~ CFfnx(a = alpha.stormwater, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
-   sample.matrix == "fish" ~ CFfnx(a = alpha.fish, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),)) %>% 
+   sample.matrix == "fish" ~ CFfnx(a = alpha.fish, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set)),
+   
+   #upper 95% CI
+   CF_upper95 = case_when(
+    sample.matrix.specific == "surface water" ~ CFfnx(a = alpha.marine, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+   sample.matrix.specific == "sediment" ~ CFfnx(a = alpha.sediment, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+   sample.matrix.specific == "wastewater" ~ CFfnx(a = alpha.wastewater, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+   sample.matrix.specific == "stormwater" ~ CFfnx(a = alpha.stormwater, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+   sample.matrix == "fish" ~ CFfnx(a = alpha.fish, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+   
+   )) %>% 
   mutate(particle.L.master = particles.L.blank.corrected.particle.corrected * CF,
          particle.fish.master = particles.fish.blank.corrected.particle.corrected * CF,
          particles.kg.master = particles.kg.blank.corrected.particle.corrected * CF) %>% 
@@ -621,8 +644,11 @@ sfBay_aligned <- sfBay3 %>%
 # Occurence ANalysis
 
 ### Boxplot SFEI
+This is a boxplot with three panels for water, sediment, and fish tissue
+#### Water Matrices
 ```{r}
-SFEI_mesh_matrix <- sfBay_aligned %>% 
+#first transform data
+water_SFEI_mesh_matrix <- sfBay_aligned %>% 
   filter(source == "SFEI") %>% 
   filter(particle.L.master >0,
          unaligned.particle.L.master > 0) %>% 
@@ -639,34 +665,25 @@ SFEI_mesh_matrix <- sfBay_aligned %>%
   mutate(alignment_pretty = case_when(alignment == "particle.L.master" ~ "Aligned",
                                       alignment == "unaligned.particle.L.master" ~ "Unaligned")) %>% 
 ## PLOTTING ##
-  ggplot(aes(y = concentration, x = apparatus.matrix, color = alignment_pretty)) +
+  ggplot(aes(y = concentration, x =factor(apparatus.matrix, level = c('surface water (Manta Trawl)',
+                                                                      'surface water (1-L grab)',
+                                                                      'stormwater (24-hr pipe)',
+                                                                      'wastewater (Composite)')),
+                                          color = alignment_pretty)) +
   #aligned
-  geom_boxplot(notch = TRUE, width = 1) +
+  geom_boxplot(notch = TRUE, width = 1, size = 1) +
  # ggbeeswarm::geom_quasirandom()+
-  geom_point(position=position_jitterdodge())+
-  
+ # geom_point(position=position_jitterdodge())+
+ 
   scale_color_manual(name = "Alignment",
                      values = hcl(c(0, 240),100,65, alpha=c(1,0.6)),
                      labels = c("Aligned (1 to 5,000 μm)",
                                 "Unaligned")) +
-  #scale_color_manual(name = "Sampling Apparatus",values = wes_palette("Darjeeling1"))+
-   # geom_hline(yintercept = Threshold1, linetype = 'dashed', color = 'green', size = 1) +
-   # geom_hline(yintercept = Threshold2, linetype = 'dashed', color = 'yellow', size = 1) +
-   # geom_hline(yintercept = Threshold3, linetype = 'dashed', color = 	'orange', size = 1) +
-   # geom_hline(yintercept = Threshold4, linetype = 'dashed', color = 	'red', size = 1) +
-  # geom_text(label = "Threshold 1", color = 'green', x = Threshold1, y = 0.15, size = 6)+
-  # geom_text(label = "Threshold 2", color = 'yellow', x = Threshold2, y = 0.22, size = 6)+
-  # geom_text(label = "Threshold 3", color = 'orange', x = Threshold3, y = 0.35, size = 6)+
-  # geom_text(label = "Threshold 4", color = 'red', x = Threshold4, y = 0.45, size = 6)+
     scale_y_log10(breaks = scales::log_breaks(n = 12),labels = comma_signif,
                    limits = c(1e-6, 10000))+
    # annotation_logticks(sides = "b")+ #log scale rick marks on bottom
   ylab(paste0("Particles/L"))+
   theme.type +
-  #labs(title = "San Francisco Bay Surface Water Marine Microplastics Concentrations",
-      # subtitle = paste("Particles/L corrected to:",x1D_set, "to", x2D_set, "um"),
-      # caption = paste("Concentration data from Zhu et al (2021): 29 sampling locations, n = 136; corrected for size ranges. Alpha = ",alpha.marine)
-   #   )+
   theme(
     plot.title = element_text(hjust = 0.5, size = 18),
         plot.subtitle = element_text(hjust = 0.5, size = 14),
@@ -677,13 +694,125 @@ SFEI_mesh_matrix <- sfBay_aligned %>%
         legend.background = element_rect(fill = "white", color = "black"),
         legend.key.size = unit(1.3, 'cm'))
 
-SFEI_mesh_matrix
+water_SFEI_mesh_matrix
 ```
+####Sediment
 ```{r}
-ggsave(plot = SFEI_mesh_matrix,
-       filename = "SFEI_mesh_matrix.jpg",
+#first transform data
+sediment_SFEI_mesh_matrix <- sfBay_aligned %>% 
+  filter(source == "SFEI") %>% 
+  filter(particles.kg.master >0,
+         particles.kg.blank.corrected.particle.corrected > 0) %>% 
+  mutate(apparatus.matrix = paste0(sample.matrix.specific, " (", Sampling.apparatus,")")) %>% 
+  #filter(sample.matrix.specific == "surface water") %>% 
+  drop_na(particles.kg.master) %>% 
+   dplyr::select(c(sampleID, particles.kg.blank.corrected.particle.corrected, particles.kg.master,apparatus.matrix,
+                   #Sampling.apparatus, sample.matrix.specific
+                   )) %>% 
+  pivot_longer(-c(sampleID, apparatus.matrix,
+                  #Sampling.apparatus, sample.matrix.specific
+                  ), names_to = "alignment", values_to = "concentration") %>% 
+  #rename for easy plotting
+  mutate(alignment_pretty = case_when(alignment == "particles.kg.master" ~ "Aligned",
+                                      alignment == "particles.kg.blank.corrected.particle.corrected" ~ "Unaligned")) %>% 
+## PLOTTING ##
+  ggplot(aes(y = concentration, x = apparatus.matrix, color = alignment_pretty)) +
+  #aligned
+  geom_boxplot(notch = TRUE, width = 1, size = 1) +
+ # ggbeeswarm::geom_quasirandom()+
+ # geom_point(position=position_jitterdodge())+
+  
+  scale_color_manual(name = "Alignment",
+                     values = hcl(c(0, 240),100,65, alpha=c(1,0.6)),
+                     labels = c("Aligned (1 to 5,000 μm)",
+                                "Unaligned")) +
+    scale_y_log10(breaks = scales::log_breaks(n = 5),labels = comma_signif,
+                   limits = c(1, 10000))+
+   # annotation_logticks(sides = "b")+ #log scale rick marks on bottom
+  ylab(paste0("Particles/kg"))+
+  theme.type +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, size = 14),
+    axis.title.x = element_blank(),
+    legend.title = element_blank(),
+    legend.position = c(0.8,0.8),
+    legend.text = element_text(size = 12, face = "bold"),
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.key.size = unit(1.3, 'cm'))
+
+sediment_SFEI_mesh_matrix
+
+```
+####fish
+```{r}
+#first transform data
+fish_SFEI_mesh_matrix <- sfBay_aligned %>% 
+  filter(source == "SFEI") %>% 
+  filter(particle.fish.master >0,
+         particles.fish.blank.corrected.particle.corrected > 0) %>% 
+  mutate(apparatus.matrix = paste0(sample.matrix.specific, " (", Sampling.apparatus,")")) %>% 
+  #filter(sample.matrix.specific == "surface water") %>% 
+  drop_na(particle.fish.master) %>% 
+   dplyr::select(c(sampleID, particles.fish.blank.corrected.particle.corrected, particle.fish.master,apparatus.matrix,
+                   #Sampling.apparatus, sample.matrix.specific
+                   )) %>% 
+  pivot_longer(-c(sampleID, apparatus.matrix,
+                  #Sampling.apparatus, sample.matrix.specific
+                  ), names_to = "alignment", values_to = "concentration") %>% 
+  #rename for easy plotting
+  mutate(alignment_pretty = case_when(alignment == "particle.fish.master" ~ "Aligned",
+                                      alignment == "particles.fish.blank.corrected.particle.corrected" ~ "Unaligned")) %>% 
+## PLOTTING ##
+  ggplot(aes(y = concentration, x = apparatus.matrix, color = alignment_pretty)) +
+  #aligned
+  geom_boxplot(notch = TRUE, width = 1, size = 1) +
+ # ggbeeswarm::geom_quasirandom()+
+#  geom_point(position=position_jitterdodge())+
+  
+  scale_color_manual(name = "Alignment",
+                     values = hcl(c(0, 240),100,65, alpha=c(1,0.6)),
+                     labels = c("Aligned (1 to 5,000 μm)",
+                                "Unaligned")) +
+    scale_y_log10(breaks = scales::log_breaks(n = 5),labels = comma_signif,
+                   limits = c(1, 1000))+
+   # annotation_logticks(sides = "b")+ #log scale rick marks on bottom
+  ylab(paste0("Particles/fish"))+
+  theme.type +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 18),
+        plot.subtitle = element_text(hjust = 0.5, size = 14),
+    axis.title.x = element_blank(),
+    legend.title = element_blank(),
+    #legend.position = c(0.8,0.8),
+    legend.text = element_text(size = 14, face = "bold"),
+      #  legend.background = element_rect(fill = "white", color = "black"),
+        legend.key.size = unit(2, 'cm'))
+
+fish_SFEI_mesh_matrix
+
+```
+#### Arrangement
+```{r}
+#get legend
+leg <- get_legend(fish_SFEI_mesh_matrix)
+#remove legend from other plots
+water_SFEI_mesh_matrix <-  water_SFEI_mesh_matrix + theme(legend.position = "none")
+sediment_SFEI_mesh_matrix <-  sediment_SFEI_mesh_matrix + theme(legend.position = "none")
+fish_SFEI_mesh_matrix <-  fish_SFEI_mesh_matrix + theme(legend.position = "none")
+
+boxplot <- ggarrange(water_SFEI_mesh_matrix, #first row with water matrices
+          ggarrange(sediment_SFEI_mesh_matrix, fish_SFEI_mesh_matrix,  ncol = 2, labels = c("B", "C")), #second row with additional matrices
+          nrow = 2,
+          common.legend = TRUE,
+          legend = "bottom",
+          labels = c("A"))
+boxplot
+
+ggsave(plot = boxplot,
+       filename = "boxplot.jpg",
        path = "output/figures/", 
-       width = 10, height = 6, units = "in",
+       width = 12, height = 9, units = "in",
        bg = "white",
        dpi = 300)
 ```
@@ -730,17 +859,17 @@ probability_distributions.Rmd determines the size power law for marine surface w
 
 ##### Align
 ```{r}
-# alpha.marine.plus.one <- alpha.marine + alpha.marine.sd
-# alpha.marine.plus.two <- alpha.marine + (2 * alpha.marine.sd)
-# alpha.marine.plus.three <- alpha.marine + (3 * alpha.marine.sd)
-# alpha.marine.minus.one <- alpha.marine - alpha.marine.sd
-# alpha.marine.minus.two <- alpha.marine - (2 * alpha.marine.sd)
-# alpha.marine.minus.three <- alpha.marine - (3 * alpha.marine.sd)
+# alpha.marine.plus.one <- alpha.marine + alpha.marine.se
+# alpha.marine.plus.two <- alpha.marine + (2 * alpha.marine.se)
+# alpha.marine.plus.three <- alpha.marine + (3 * alpha.marine.se)
+# alpha.marine.minus.one <- alpha.marine - alpha.marine.se
+# alpha.marine.minus.two <- alpha.marine - (2 * alpha.marine.se)
+# alpha.marine.minus.three <- alpha.marine - (3 * alpha.marine.se)
 
 #create dataframe with PDFs derived in probability_distributions.Rmd
 alignment_factors <- data.frame("matrix" = c("Surface", "Fish", "Storm", "WWTP", "Sediment"),
                                 "alpha" = c(alpha.marine, alpha.fish, alpha.stormwater, alpha.wastewater, alpha.sediment),
-                                "alpha.se" = c(alpha.marine.sd, alpha.fish.sd, alpha.stormwater.sd, alpha.wastewater.sd, alpha.sediment.sd)) %>% 
+                                "alpha.se" = c(alpha.marine.se, alpha.fish.se, alpha.stormwater.se, alpha.wastewater.se, alpha.sediment.se)) %>% 
   mutate(alpha.upper.68 = alpha + alpha.se,
          alpha.lower.68 = alpha - alpha.se,
          alpha.upper.95 = alpha + (1.96*alpha.se),
@@ -789,7 +918,7 @@ sensitivity
                                    
 ```
 
-###### EXPORT DATA
+###### EXPORT FINAL DATASET
 ```{r}
 write.csv(sensitivity,
           "output/data/final_aligned_dataset.csv"
@@ -857,25 +986,30 @@ write.csv(sensitivity.analysis ,
 sfBayECDF_sensitivity <- sensitivity %>% 
   filter(source == "SFEI") %>% 
   filter(sample.matrix.specific == "surface water") %>% 
+  filter(Sampling.apparatus == "Manta Trawl") %>% 
   filter(particle.L.master > 0) %>% 
   #just select concentrations
   dplyr::select(c(Conc, conc.upper.68, conc.upper.95, conc.upper.99, conc.lower.68, conc.lower.95, conc.lower.99)) %>% 
   #make long data
   pivot_longer(everything()) %>% 
   mutate(name = as.factor(name)) %>% 
+  mutate(percentile = case_when(grepl("68", name) ~ "68th Percentile",
+                                grepl("95", name) ~ "95th Percentile",
+                                grepl("99", name) ~ "99th Percentile",
+                                name == "Conc" ~ "Mean")) %>% 
   ggplot() +
  # stat_ecdf(aes(x = value, color = name),
   #          geom = "point", size = 1, alpha = 0.5) +
-  stat_ecdf(aes(x = value, color = name),geom = "step", linetype = 'solid', alpha = 0.7, size = 9) +
+  stat_ecdf(aes(x = value, color = name),geom = "step", linetype = 'solid', alpha = 1, size = 1) +
   #color
   scale_color_manual(name = "Alignment Uncertanties",
-                     values = c("Conc" = "#e8ffff",
-                                "conc.lower.68" = "#bfe6ff",
-                                "conc.upper.68" = "#bfe6ff",
+                     values = c("Conc" = "#012740",
+                                "conc.lower.68" = "#05619c",
+                                "conc.upper.68" = "#05619c",
                                 "conc.lower.95" = "#8cd3ff",
                                 "conc.upper.95" = "#8cd3ff",
-                                "conc.lower.99" = "#009dff",
-                                "conc.upper.99" = "#009dff"),
+                                "conc.lower.99" = "#c1e2f7",
+                                "conc.upper.99" = "#c1e2f7"),
                      labels = c("Mean", 
                                 "68th Percentile",
                                 "68th Percentile",
@@ -884,14 +1018,14 @@ sfBayECDF_sensitivity <- sensitivity %>%
                                 "99.7th Percentile",
                                 "99.7th Percentile")) +
   # ##Food Dilution thresholds #
-  # geom_vline(xintercept = Threshold1_food, linetype = 'solid', color = "#85a17d", size = 1) +
-  # geom_text(label = "Food Dilution T1", color = "#85a17d" , x = Threshold1_food, y = 0.10, size = 5)+
-  geom_vline(xintercept = Threshold2_food, linetype = 'dashed', color = "#ebbb38", size = 1.5) +
-  geom_text(label = "Food Dilution T2", color = "#ebbb38" , x = Threshold2_food, y = 0.15, size = 6)+
-  # geom_vline(xintercept = Threshold3_food, linetype = 'dashed', color = "#fd8060", size = 1) +
-  # geom_text(label = "Food Dilution T3", color = "#fd8060" , x = Threshold3_food, y = 0.20, size = 5)+
-   geom_vline(xintercept = Threshold4_food, linetype = 'dashed', color = "#E84258", size = 1.5) +
-  geom_text(label = "Food Dilution T4", color = "#E84258",  x = Threshold4_food, y = 0.25, size = 6)+
+   geom_vline(xintercept = Threshold1_food, linetype = 'dashed', color = "#fcc523", size = 1.5) +
+   geom_text(label = "Threshold One", color = "#fcc523" , x = Threshold1_food, y = 0.10, size = 6)+
+  geom_vline(xintercept = Threshold2_food, linetype = 'dashed', color = "#bf8345", size = 1.5) +
+  geom_text(label = "Threshold Two", color = "#bf8345" , x = Threshold2_food, y = 0.20, size = 6)+
+   geom_vline(xintercept = Threshold3_food, linetype = 'dashed', color = "#e06665", size = 1.5) +
+   geom_text(label = "Threshold Three", color = "#e06665" , x = Threshold3_food, y = 0.30, size = 6)+
+   geom_vline(xintercept = Threshold4_food, linetype = 'dashed', color = "#ac5784", size = 1.5) +
+  geom_text(label = "Threshold Four", color = "#ac5784",  x = Threshold4_food, y = 0.40, size = 6)+
   ## Food dilution 95% CI's ##
   # geom_vline(xintercept = Threshold2_food_lcl, linetype = 'dashed', color = "#ebbb38", size = 1) +
   # geom_vline(xintercept = Threshold2_food_hcl, linetype = 'dashed', color = "#ebbb38", size = 1) +
@@ -900,22 +1034,34 @@ sfBayECDF_sensitivity <- sensitivity %>%
   # geom_vline(xintercept = Threshold4_food_lcl, linetype = 'dashed', color = "#E84258", size = 1.5) +
   # geom_vline(xintercept = Threshold4_food_hcl, linetype = 'dashed', color = "#E84258", size = 1.5) +
   
+  #### Tissue Translocation Thresholds ####
+# geom_vline(xintercept = Threshold1_oxidative.stress, linetype = 'dashed', color = "#85a17d", size = 1.5) +
+#    geom_text(label = "oxidative.stress Dilution T1", color = "#85a17d" , x = Threshold1_oxidative.stress, y = 0.10, size = 6)+
+#   geom_vline(xintercept = Threshold2_oxidative.stress, linetype = 'dashed', color = "#ebbb38", size = 1.5) +
+#   geom_text(label = "oxidative.stress Dilution T2", color = "#ebbb38" , x = Threshold2_oxidative.stress, y = 0.15, size = 6)+
+#    geom_vline(xintercept = Threshold3_oxidative.stress, linetype = 'dashed', color = "#fd8060", size = 1.5) +
+#    geom_text(label = "oxidative.stress Dilution T3", color = "#fd8060" , x = Threshold3_oxidative.stress, y = 0.20, size = 6)+
+#    geom_vline(xintercept = Threshold4_oxidative.stress, linetype = 'dashed', color = "#E84258", size = 1.5) +
+#   geom_text(label = "oxidative.stress Dilution T4", color = "#E84258",  x = Threshold4_oxidative.stress, y = 0.25, size = 6)+
+  
   ## Food dilution 95% CI's ribbons ##
-  annotate("rect", xmin = Threshold2_food_lcl, xmax = Threshold2_food_hcl, ymin = 0, ymax = 1, fill = "#fd8060", alpha = 0.2, color = "#fd8060", linetype = "dotted")+
+  #annotate("rect", xmin = Threshold2_food_lcl, xmax = Threshold2_food_hcl, ymin = 0, ymax = 1, fill = "#fd8060", alpha = 0.2, color = "#fd8060", linetype = "dotted")+
   #annotate("rect", xmin = Threshold3_food_lcl, xmax = Threshold3_food_hcl, ymin = 0, ymax = 1, fill = "#fd8060", alpha = 0.2)+
-  annotate("rect", xmin = Threshold4_food_lcl, xmax = Threshold4_food_hcl, ymin = 0, ymax = 1, fill = "#E84258", alpha = 0.2,
-           color = "#fd8060", linetype = "dotted")+
+#  annotate("rect", xmin = Threshold4_food_lcl, xmax = Threshold4_food_hcl, ymin = 0, ymax = 1, fill = "#E84258", alpha = 0.2,
+ #          color = "#fd8060", linetype = "dotted")+
   
     ylab("Cumulative Density") +
   xlab("Surface Water Particles/L (aligned to 1 to 5,000 µm)") +
   #xlab(paste0("Particles/L (" ,x1D_set, " to ", x2D_set, "um)"))+
   scale_y_continuous(labels = scales::percent)+
   coord_trans(x = "log10") +
-  scale_x_continuous(breaks = scales::trans_breaks("log10", function(x) 10^x),labels = comma_signif)+
+  scale_x_continuous(breaks = scales::trans_breaks("log10", function(x) 10^x),labels = comma_signif,
+                     limits = c(1e-4,100 ))+
   #annotation_logticks(sides = "b")+ #log scale rick marks on bottom
   theme.type +
   theme(legend.title = element_blank(),
-        legend.position = "none")
+        legend.position = c(0.1,0.6),
+        legend.key.size = unit(0.6, 'cm'))
   #labs(title = "Global Surface Water Marine Microplastics Concentrations",
    #    subtitle = paste("Particles/L corrected to:",x1D_set, "to", x2D_set, "um"),
     #   caption = paste("Concentration data from Adams et al (2019): 23 studies, 57 sampling locations, n = 377; corrected for size ranges. Alpha = ",alpha))
@@ -931,6 +1077,8 @@ ggsave(plot = sfBayECDF_sensitivity,
        dpi = 300)
 ```
 
+
+
 ##### MANTA only
 #####Food Dilution
 ```{r}
@@ -942,28 +1090,40 @@ manta.count <- sensitivity %>%
   summarize(n())
 
 
-sensitivity.analysis.manta <- sensitivity %>% 
+sensitivity.analysis.manta_inter <- sensitivity %>% 
   filter(source == "SFEI") %>% 
   filter(sample.matrix.specific == "surface water") %>% 
   filter(Sampling.apparatus == "Manta Trawl") %>%
   #just select concentrations
   dplyr::select(c(Conc, conc.upper.68, conc.upper.95, conc.upper.99, conc.lower.68, conc.lower.95, conc.lower.99)) %>% 
   #make long data
-  pivot_longer(everything()) %>% 
-  mutate(aboveThreshold = factor(case_when(
-    value < Threshold1_food ~ "below Threshold 1",
-    value >= Threshold1_food & value < Threshold2_food ~ "above Threshold 1",
-    value >= Threshold2_food & value < Threshold3_food ~ "above Threshold 2",
-    value >= Threshold3_food & value < Threshold4_food ~ "above Threshold 3",
-    value >= Threshold4_food ~ "above Threshold 4"
-  ))) %>% 
-  group_by(aboveThreshold, name) %>%
-  dplyr::summarize(n = n()) %>% 
-  mutate(rel.freq = paste0(round(100 *(n/manta.count[1,]),1),"%")) %>% 
-  pivot_wider(names_from = "name", values_from = c("n", "rel.freq")) %>% 
-  mutate(aboveThreshold = factor(aboveThreshold, levels = c("below Threshold 1", "above Threshold 1", "above Threshold 2", "above Threshold 3", "above Threshold 4"))) %>% 
-  arrange(aboveThreshold)
-  
+  pivot_longer(everything(),names_to = "alignment", values_to = "conc") %>% 
+  #mutate(alignment = factor(alignment)) %>% 
+  group_by(alignment) %>% 
+  summarize(n = n(),
+            belowThreshold1 = sum(conc < Threshold1_food),
+            aboveThreshold1 = sum(conc > Threshold1_food),
+            aboveThreshold2 = sum(conc > Threshold2_food),
+            aboveThreshold3 = sum(conc > Threshold3_food),
+            aboveThreshold4 = sum(conc > Threshold4_food))
+
+  #transpose
+t_sensitivity.analysis.manta <- data.table::transpose(sensitivity.analysis.manta_inter)
+# get row and colnames in order
+colnames(t_sensitivity.analysis.manta) <- rownames(sensitivity.analysis.manta_inter)
+rownames(t_sensitivity.analysis.manta) <- colnames(sensitivity.analysis.manta_inter)
+
+t_2 <- t_sensitivity.analysis.manta %>% janitor::row_to_names(row_number = 1)
+rownames(t_2) <- colnames(sensitivity.analysis.manta_inter[-1])
+
+sensitivity.analysis.manta_t2 <- t_2 %>% tibble::rownames_to_column("aboveThreshold")
+
+sensitivity.analysis.manta <- sensitivity.analysis.manta_t2 %>% 
+  filter(!aboveThreshold == "n") %>% 
+  mutate_at(c(2:8), as.numeric) %>% 
+  mutate(Conc.percent = Conc / manta.count[1,],
+         conc.lower.95.percent = conc.lower.95 / manta.count[1,],
+         conc.upper.95.percent = conc.upper.95 / manta.count[1,])
 
 sensitivity.analysis.manta
 ```
@@ -975,6 +1135,7 @@ write.csv(sensitivity.analysis.manta ,
           )
 ```
 
+
 #####Tissue Translocation
 ```{r}
 #count samples
@@ -985,28 +1146,40 @@ manta.count <- sensitivity %>%
   summarize(n())
 
 
-sensitivity.analysis.manta.oxidative <- sensitivity %>% 
+sensitivity.analysis.manta.oxidative_inter <- sensitivity %>% 
   filter(source == "SFEI") %>% 
   filter(sample.matrix.specific == "surface water") %>% 
   filter(Sampling.apparatus == "Manta Trawl") %>%
   #just select concentrations
   dplyr::select(c(Conc, conc.upper.68, conc.upper.95, conc.upper.99, conc.lower.68, conc.lower.95, conc.lower.99)) %>% 
   #make long data
-  pivot_longer(everything()) %>% 
-  mutate(aboveThreshold = factor(case_when(
-    value < Threshold1_oxidative.stress ~ "below Threshold 1",
-    value >= Threshold1_oxidative.stress & value < Threshold2_oxidative.stress ~ "above Threshold 1",
-    value >= Threshold2_oxidative.stress & value < Threshold3_oxidative.stress ~ "above Threshold 2",
-    value >= Threshold3_oxidative.stress & value < Threshold4_oxidative.stress ~ "above Threshold 3",
-    value >= Threshold4_oxidative.stress ~ "above Threshold 4"
-  ))) %>% 
-  group_by(aboveThreshold, name) %>%
-  dplyr::summarize(n = n()) %>% 
-  mutate(rel.freq = paste0(round(100 *(n/manta.count[1,]),1),"%")) %>% 
-  pivot_wider(names_from = "name", values_from = c("n", "rel.freq")) %>% 
-  mutate(aboveThreshold = factor(aboveThreshold, levels = c("below Threshold 1", "above Threshold 1", "above Threshold 2", "above Threshold 3", "above Threshold 4"))) %>% 
-  arrange(aboveThreshold)
-  
+  pivot_longer(everything(),names_to = "alignment", values_to = "conc") %>% 
+  #mutate(alignment = factor(alignment)) %>% 
+  group_by(alignment) %>% 
+  summarize(n = n(),
+            belowThreshold1 = sum(conc < Threshold1_oxidative.stress),
+            aboveThreshold1 = sum(conc > Threshold1_oxidative.stress),
+            aboveThreshold2 = sum(conc > Threshold2_oxidative.stress),
+            aboveThreshold3 = sum(conc > Threshold3_oxidative.stress),
+            aboveThreshold4 = sum(conc > Threshold4_oxidative.stress))
+
+  #transpose
+t_sensitivity.analysis.manta.oxidative <- data.table::transpose(sensitivity.analysis.manta.oxidative_inter)
+# get row and colnames in order
+colnames(t_sensitivity.analysis.manta.oxidative) <- rownames(sensitivity.analysis.manta.oxidative_inter)
+rownames(t_sensitivity.analysis.manta.oxidative) <- colnames(sensitivity.analysis.manta.oxidative_inter)
+
+t_2 <- t_sensitivity.analysis.manta.oxidative %>% janitor::row_to_names(row_number = 1)
+rownames(t_2) <- colnames(sensitivity.analysis.manta.oxidative_inter[-1])
+
+sensitivity.analysis.manta.oxidative_t2 <- t_2 %>% tibble::rownames_to_column("aboveThreshold")
+
+sensitivity.analysis.manta.oxidative <- sensitivity.analysis.manta.oxidative_t2 %>% 
+  filter(!aboveThreshold == "n") %>% 
+  mutate_at(c(2:8), as.numeric) %>% 
+  mutate(Conc.percent = Conc / manta.count[1,],
+         conc.lower.95.percent = conc.lower.95 / manta.count[1,],
+         conc.upper.95.percent = conc.upper.95 / manta.count[1,])
 
 sensitivity.analysis.manta.oxidative
 ```
@@ -1018,24 +1191,91 @@ write.csv(sensitivity.analysis.manta.oxidative ,
           )
 ```
 
+##### Bar Plots
+```{r}
+barplot <- sensitivity.analysis.manta %>% 
+  # replace_na(list(rel.freq_Conc = 0,
+  #                 rel.freq_conc.lower.95 = 0,
+  #                 rel.freq_conc.upper.95 = 0)) %>% 
+  mutate(frequency = as.numeric(Conc.percent)) %>% 
+  mutate(frequency_lower = as.numeric(conc.lower.95.percent)) %>%
+  mutate(frequency_upper = as.numeric(conc.upper.95.percent)) %>% 
+  mutate(threshold = case_when(aboveThreshold == "belowThreshold1" ~ "< Threshold One",
+                               aboveThreshold == "aboveThreshold1" ~ "> Threshold One",
+                               aboveThreshold == "aboveThreshold2" ~ "> Threshold Two",
+                               aboveThreshold == "aboveThreshold3" ~ "> Threshold Three",
+                               aboveThreshold == "aboveThreshold4" ~ "> Threshold Four")) %>% 
+  ggplot(aes(x = factor(threshold, level = c("< Threshold One",
+                                             "> Threshold One",
+                                             "> Threshold Two",
+                                             "> Threshold Three",
+                                             "> Threshold Four")))) +
+  geom_col(aes(y = frequency, fill = threshold)) +
+  geom_errorbar(aes(ymin = frequency_lower, ymax = frequency_upper)) +
+  scale_y_continuous(limits = c(0,1),
+                     labels = scales::percent) +
+  scale_fill_manual(values = c("< Threshold One" = "#b6d7a8", #green
+                                "> Threshold One" = "#fcc523", #yellow
+                               "> Threshold Two" = "#bf8345", #orange
+                                "> Threshold Three" = "#e06665", # red
+                               "> Threshold Four" = "#ac5784" #purple
+                               )) +
+
+  coord_flip() +
+  ylab("Percentage of Samples Exceeding Threshold") +
+  theme.type +
+  theme(axis.title.y = element_blank(),
+        axis.text.y = element_text(color = c("#90ab85", #green
+                               "#fcc523", #yellow
+                               "#bf8345", #orange
+                                "#e06665", # red
+                               "#ac5784" #purple
+                               ),
+                               face = "bold",
+                               size = 18),
+        legend.position = "none"
+        )
+
+barplot
+```
+
+###### ARRANGE
+```{r}
+bar_cdf <- ggarrange(barplot, sfBayECDF_sensitivity,
+          nrow = 2,
+          labels = c("A", "B"))
+
+bar_cdf
+
+ggsave(plot = bar_cdf,
+       filename = "bar_cdf.jpeg",
+       path = "output/figures/", 
+       width = 10, height = , units = "in",
+       bg = "white",
+       dpi = 300)
+```
+
+
 #### Group-by Location
 ##### Food Dilution
-###### MANTA and GRAB
+###### MANTA only
 ```{r}
 #count samples
-count.location <- sensitivity %>% 
+manta.count.location <- sensitivity %>% 
   filter(source == "SFEI") %>% 
   filter(sample.matrix.specific == "surface water") %>% 
+  filter(Sampling.apparatus == "Manta Trawl") %>%
   group_by(locationNew) %>% 
   summarize(total = n())
 
-count.location
+manta.count.location
 ```
 
 ```{r}
-sensitivity.analysis.location <- sensitivity %>% 
+sensitivity.analysis.location_inter <- sensitivity %>% 
   filter(source == "SFEI") %>% 
   filter(sample.matrix.specific == "surface water") %>% 
+  filter(Sampling.apparatus == "Manta Trawl") %>%
   #just select concentrations
   dplyr::select(c(Conc, #conc.upper.68,
                   conc.upper.95, 
@@ -1044,21 +1284,35 @@ sensitivity.analysis.location <- sensitivity %>%
                   #conc.lower.99,
                   locationNew)) %>% 
   #make long data
-  pivot_longer(starts_with("conc")) %>% 
-  mutate(aboveThreshold = factor(case_when(
-    value < Threshold1_food ~ "below Threshold 1",
-    value >= Threshold1_food & value < Threshold2_food ~ "above Threshold 1",
-    value >= Threshold2_food & value < Threshold3_food ~ "above Threshold 2",
-    value >= Threshold3_food & value < Threshold4_food ~ "above Threshold 3",
-    value >= Threshold4_food ~ "above Threshold 4"
-  ))) %>% 
-  group_by(aboveThreshold, name, locationNew) %>%
-  dplyr::summarize(n = n()) %>% 
-  left_join(count.location, by = "locationNew") %>% 
-  mutate(rel.freq = paste0(round(100 *(n/total)),"%")) %>% 
-  pivot_wider(names_from = "name", values_from = c("n", "rel.freq")) %>% 
-  mutate(aboveThreshold = factor(aboveThreshold, levels = c("below Threshold 1", "above Threshold 1", "above Threshold 2", "above Threshold 3", "above Threshold 4"))) %>% 
-  arrange(aboveThreshold)
+  pivot_longer(starts_with("conc"), names_to = "alignment", values_to = "conc") %>% 
+
+  #pivot_longer(-c(locationNew),names_to = "alignment", values_to = "conc") %>% 
+  #mutate(alignment = factor(alignment)) %>% 
+  group_by(alignment, locationNew) %>% 
+  summarize(n = n(),
+            belowThreshold1 = sum(conc < Threshold1_food),
+            aboveThreshold1 = sum(conc > Threshold1_food),
+            aboveThreshold2 = sum(conc > Threshold2_food),
+            aboveThreshold3 = sum(conc > Threshold3_food),
+            aboveThreshold4 = sum(conc > Threshold4_food))
+
+  #transpose
+t_sensitivity.analysis.location <- data.table::transpose(sensitivity.analysis.location_inter)
+# get row and colnames in order
+colnames(t_sensitivity.analysis.location) <- rownames(sensitivity.analysis.location_inter)
+rownames(t_sensitivity.analysis.location) <- colnames(sensitivity.analysis.location_inter)
+
+t_2 <- t_sensitivity.analysis.location %>% janitor::row_to_names(row_number = 1)
+rownames(t_2) <- colnames(sensitivity.analysis.location_inter[-1])
+
+sensitivity.analysis.location_t2 <- t_2 %>% tibble::rownames_to_column("aboveThreshold")
+
+sensitivity.analysis.location <- sensitivity.analysis.location_t2# %>% 
+  #filter(!aboveThreshold == "n") %>% 
+ # mutate_at(c(2:4), as.numeric) %>% 
+  #mutate(Conc.percent = Conc / manta.count[1,],
+   #      conc.lower.95.percent = conc.lower.95 / manta.count[1,],
+    #     conc.upper.95.percent = conc.upper.95 / manta.count[1,])
   
 
 sensitivity.analysis.location
@@ -1071,109 +1325,7 @@ write.csv(sensitivity.analysis.location ,
           )
 ```
 
-###### MANTA only
-```{r}
-#count samples
-manta.count.location <- sensitivity %>% 
-  filter(source == "SFEI") %>% 
-  filter(sample.matrix.specific == "surface water") %>% 
-  filter(Sampling.apparatus == "Manta Trawl") %>%
-  group_by(locationNew) %>% 
-  summarize(total = n())
-
-manta.count.location
-```
-
-```{r}
-sensitivity.analysis.manta.location <- sensitivity %>% 
-  filter(source == "SFEI") %>% 
-  filter(sample.matrix.specific == "surface water") %>% 
-  filter(Sampling.apparatus == "Manta Trawl") %>%
-  #just select concentrations
-  dplyr::select(c(Conc, #conc.upper.68,
-                  conc.upper.95, 
-                  #conc.upper.99, conc.lower.68, 
-                  conc.lower.95, 
-                  #conc.lower.99,
-                  locationNew)) %>% 
-  #make long data
-  pivot_longer(starts_with("conc")) %>% 
-  mutate(aboveThreshold = factor(case_when(
-    value < Threshold1_food ~ "below Threshold 1",
-    value >= Threshold1_food & value < Threshold2_food ~ "above Threshold 1",
-    value >= Threshold2_food & value < Threshold3_food ~ "above Threshold 2",
-    value >= Threshold3_food & value < Threshold4_food ~ "above Threshold 3",
-    value >= Threshold4_food ~ "above Threshold 4"
-  ))) %>% 
-  group_by(aboveThreshold, name, locationNew) %>%
-  dplyr::summarize(n = n()) %>% 
-  left_join(manta.count.location, by = "locationNew") %>% 
-  mutate(rel.freq = paste0(round(100 *(n/total)),"%")) %>% 
-  pivot_wider(names_from = "name", values_from = c("n", "rel.freq")) %>% 
-  mutate(aboveThreshold = factor(aboveThreshold, levels = c("below Threshold 1", "above Threshold 1", "above Threshold 2", "above Threshold 3", "above Threshold 4"))) %>% 
-  arrange(aboveThreshold)
-  
-
-sensitivity.analysis.manta.location
-```
-
-###### EXPORT EXCEEDANCES
-```{r}
-write.csv(sensitivity.analysis.manta.location ,
-          "output/data/sensitivity.analysis.manta.location.csv"
-          )
-```
 ##### Oxidative Stress
-###### MANTA and GRAB
-```{r}
-#count samples
-count.location <- sensitivity %>% 
-  filter(source == "SFEI") %>% 
-  filter(sample.matrix.specific == "surface water") %>% 
-  group_by(locationNew) %>% 
-  summarize(total = n())
-
-count.location
-```
-
-```{r}
-sensitivity.analysis.location.oxidative <- sensitivity %>% 
-  filter(source == "SFEI") %>% 
-  filter(sample.matrix.specific == "surface water") %>% 
-  #just select concentrations
-  dplyr::select(c(Conc, #conc.upper.68,
-                  conc.upper.95, 
-                  #conc.upper.99, conc.lower.68, 
-                  conc.lower.95, 
-                  #conc.lower.99,
-                  locationNew)) %>% 
-  #make long data
-  pivot_longer(starts_with("conc")) %>% 
-  mutate(aboveThreshold = factor(case_when(
-    value < Threshold1_oxidative.stress ~ "below Threshold 1",
-    value >= Threshold1_oxidative.stress & value < Threshold2_oxidative.stress ~ "above Threshold 1",
-    value >= Threshold2_oxidative.stress & value < Threshold3_oxidative.stress ~ "above Threshold 2",
-    value >= Threshold3_oxidative.stress & value < Threshold4_oxidative.stress ~ "above Threshold 3",
-    value >= Threshold4_oxidative.stress ~ "above Threshold 4"
-  ))) %>% 
-  group_by(aboveThreshold, name, locationNew) %>%
-  dplyr::summarize(n = n()) %>% 
-  left_join(count.location, by = "locationNew") %>% 
-  mutate(rel.freq = paste0(round(100 *(n/total)),"%")) %>% 
-  pivot_wider(names_from = "name", values_from = c("n", "rel.freq")) %>% 
-  mutate(aboveThreshold = factor(aboveThreshold, levels = c("below Threshold 1", "above Threshold 1", "above Threshold 2", "above Threshold 3", "above Threshold 4"))) %>% 
-  arrange(aboveThreshold)
-  
-
-sensitivity.analysis.location.oxidative
-```
-
-###### EXPORT EXCEEDANCES
-```{r}
-write.csv(sensitivity.analysis.location.oxidative,
-          "output/data/sensitivity.analysis.location.oxidative.csv"
-          )
-```
 
 ###### MANTA only
 ```{r}
@@ -1189,7 +1341,7 @@ manta.count.location
 ```
 
 ```{r}
-sensitivity.analysis.manta.location.oxidative <- sensitivity %>% 
+sensitivity.analysis.location_inter <- sensitivity %>% 
   filter(source == "SFEI") %>% 
   filter(sample.matrix.specific == "surface water") %>% 
   filter(Sampling.apparatus == "Manta Trawl") %>%
@@ -1201,26 +1353,39 @@ sensitivity.analysis.manta.location.oxidative <- sensitivity %>%
                   #conc.lower.99,
                   locationNew)) %>% 
   #make long data
-  pivot_longer(starts_with("conc")) %>% 
-  mutate(aboveThreshold = factor(case_when(
-    value < Threshold1_oxidative.stress ~ "below Threshold 1",
-    value >= Threshold1_oxidative.stress & value < Threshold2_oxidative.stress ~ "above Threshold 1",
-    value >= Threshold2_oxidative.stress & value < Threshold3_oxidative.stress ~ "above Threshold 2",
-    value >= Threshold3_oxidative.stress & value < Threshold4_oxidative.stress ~ "above Threshold 3",
-    value >= Threshold4_oxidative.stress ~ "above Threshold 4"
-  ))) %>% 
-  group_by(aboveThreshold, name, locationNew) %>%
-  dplyr::summarize(n = n()) %>% 
-  left_join(manta.count.location, by = "locationNew") %>% 
-  mutate(rel.freq = paste0(round(100 *(n/total)),"%")) %>% 
-  pivot_wider(names_from = "name", values_from = c("n", "rel.freq")) %>% 
-  mutate(aboveThreshold = factor(aboveThreshold, levels = c("below Threshold 1", "above Threshold 1", "above Threshold 2", "above Threshold 3", "above Threshold 4"))) %>% 
-  arrange(aboveThreshold)
+  pivot_longer(starts_with("conc"), names_to = "alignment", values_to = "conc") %>% 
+
+  #pivot_longer(-c(locationNew),names_to = "alignment", values_to = "conc") %>% 
+  #mutate(alignment = factor(alignment)) %>% 
+  group_by(alignment, locationNew) %>% 
+  summarize(n = n(),
+            belowThreshold1 = sum(conc < Threshold1_oxidative.stress),
+            aboveThreshold1 = sum(conc > Threshold1_oxidative.stress),
+            aboveThreshold2 = sum(conc > Threshold2_oxidative.stress),
+            aboveThreshold3 = sum(conc > Threshold3_oxidative.stress),
+            aboveThreshold4 = sum(conc > Threshold4_oxidative.stress))
+
+  #transpose
+t_sensitivity.analysis.location <- data.table::transpose(sensitivity.analysis.location_inter)
+# get row and colnames in order
+colnames(t_sensitivity.analysis.location) <- rownames(sensitivity.analysis.location_inter)
+rownames(t_sensitivity.analysis.location) <- colnames(sensitivity.analysis.location_inter)
+
+t_2 <- t_sensitivity.analysis.location %>% janitor::row_to_names(row_number = 1)
+rownames(t_2) <- colnames(sensitivity.analysis.location_inter[-1])
+
+sensitivity.analysis.location_t2 <- t_2 %>% tibble::rownames_to_column("aboveThreshold")
+
+sensitivity.analysis.manta.location.oxidative <- sensitivity.analysis.location_t2 %>% 
+  filter(!aboveThreshold == "n")# %>% 
+ # mutate_at(c(2:4), as.numeric) %>% 
+  #mutate(Conc.percent = Conc / manta.count[1,],
+   #      conc.lower.95.percent = conc.lower.95 / manta.count[1,],
+    #     conc.upper.95.percent = conc.upper.95 / manta.count[1,])
   
 
 sensitivity.analysis.manta.location.oxidative
 ```
-
 ###### EXPORT EXCEEDANCES
 ```{r}
 write.csv(sensitivity.analysis.manta.location.oxidative ,
@@ -1307,41 +1472,41 @@ sfBayECDF_sensitivity
 sfBayECDF_wetDry <- sfBay_new %>% 
   filter(source == "SFEI") %>% 
   filter(particle.L.master > 0) %>% 
-  filter(sample.matrix.specific == "surface water"#,
-         #Sampling.apparatus == "Manta Trawl"
+  filter(sample.matrix.specific == "surface water",
+         Sampling.apparatus == "Manta Trawl"
          ) %>% 
-  ggplot(aes(color = interaction(season, Sampling.apparatus, sep = "-"))) +
+  #ggplot(aes(color = interaction(season, Sampling.apparatus, sep = "-"))) +
+  ggplot(aes(color = season)) +
   #aligned
   stat_ecdf(aes(x = particle.L.master),geom = "step", linetype = 'solid', alpha = 0.7, size = 2.5) +
   #unaligned
   #stat_ecdf(aes(x = unaligned.particle.L.master),geom = "step", linetype = 'solid', alpha = 0.2, size = 2.5) +
   #color
-  scale_color_manual(values = hcl(h = c(20,190,65,245),c = 100, l = 65)) +
-  #scale_alpha_manual(name = "alignment",
-   #                 values = c(0.2,1)) +
+  scale_color_manual(values = hcl(h = c(65,245),c = 100, l = 65)) +
+  
   geom_vline(xintercept = Threshold1_food, linetype = 'dashed', color = "#85a17d", size = 1) +
-  geom_text(label = "Food Dilution T1", color = "#85a17d" , x = Threshold1_food, y = 0.10, size = 5)+
+  geom_text(label = "Threshold One", color = "#85a17d" , x = Threshold1_food, y = 0.10, size = 6)+
   geom_vline(xintercept = Threshold2_food, linetype = 'dashed', color = "#ebbb38", size = 1) +
-  geom_text(label = "Food Dilution T2", color = "#ebbb38" , x = Threshold2_food, y = 0.15, size = 5)+
+  geom_text(label = "Threshold Two", color = "#ebbb38" , x = Threshold2_food, y = 0.20, size = 6)+
   geom_vline(xintercept = Threshold3_food, linetype = 'dashed', color = "#fd8060", size = 1) +
-  geom_text(label = "Food Dilution T3", color = "#fd8060" , x = Threshold3_food, y = 0.20, size = 5)+
+  geom_text(label = "Threshold Three", color = "#fd8060" , x = Threshold3_food, y = 0.30, size = 6)+
   geom_vline(xintercept = Threshold4_food, linetype = 'dashed', color = "#E84258", size = 1) +
-  geom_text(label = "Food Dilution T4", color = "#E84258",  x = Threshold4_food, y = 0.25, size = 5)+
+  geom_text(label = "Threshold Four", color = "#E84258",  x = Threshold4_food, y = 0.40, size = 6)+
   #Aesthetics  
   ylab("Cumulative Density") +
-  labs(color = "Season - Sampling technique") +
+  labs(color = "Season") +
   xlab("Particles/L (1 to 5,000 µm)") +
   #xlab(paste0("Particles/L (" ,x1D_set, " to ", x2D_set, "um)"))+
   scale_y_continuous(labels = scales::percent)+
   coord_trans(x = "log10") +
-  scale_x_continuous(breaks = scales::trans_breaks("log10", function(x) 10^x),labels = comma_signif)+
+  scale_x_continuous(breaks = scales::trans_breaks("log10", function(x) 10^x),labels = comma_signif,
+                     limits = c(0.001, 100))+
   #annotation_logticks(sides = "b")+ #log scale rick marks on bottom
   theme.type +
-  theme(legend.position = "top")
-  #labs(title = "Global Surface Water Marine Microplastics Concentrations",
-   #    subtitle = paste("Particles/L corrected to:",x1D_set, "to", x2D_set, "um"),
-    #   caption = paste("Concentration data from Adams et al (2019): 23 studies, 57 sampling locations, n = 377; corrected for size ranges. Alpha = ",alpha))
- 
+  theme(legend.position = c(0.2, 0.6),
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.text = element_text(size = 18))
+
 sfBayECDF_wetDry
 ```
 
