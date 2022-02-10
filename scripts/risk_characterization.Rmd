@@ -40,6 +40,7 @@ library(ggsci)
 library(stringr)
 library(skimr)
 library(ggpmisc)
+library(collapsibleTree)
 ```
 
 # Hazard Concentration and Alignment Parameters
@@ -406,11 +407,12 @@ long_polymer %>%
 
 ```{r}
 #collapse categories
-summary_proportions <- long_polymer %>% 
+ long_polymer2 <- long_polymer %>% 
   mutate(general = case_when(
     grepl("Unknown", Polymer, ignore.case = TRUE) ~ "unknown",
     grepl("anthropogenic", Polymer, ignore.case = TRUE) ~ "unknown",
     grepl("natural", Polymer, ignore.case = TRUE) ~ "natural",
+    Polymer == "Non-Synthetic Fiber (cotton, silk, wool)" ~ "natural",
     Polymer == "Wool" ~ "natural",
     Polymer == "Cotton" ~ "natural",
     Polymer == "Cellulosic" ~ "natural",
@@ -418,7 +420,10 @@ summary_proportions <- long_polymer %>%
     Polymer == "Asphalt" ~ "anthropogenic (not plastic)",
     Polymer == "Not Characterized" ~ "Not Characterized"
     )) %>% 
-  replace_na(list(general = "plastic")) %>% 
+  replace_na(list(general = "plastic"))
+
+#summarize
+summary_proportions <-  long_polymer2 %>% 
   group_by(general, location, Sample.Type) %>% 
   summarize(freq_total = sum(proportion))
   
@@ -515,19 +520,122 @@ final_proportions <- rbind(plastic_proportions %>%
                       general_proportions %>% 
                         mutate(locationMatrix = paste("general", Sample.Type)) %>% 
                         rename(proportion = ave.prop) %>% 
-                        dplyr::select(c(locationMatrix, proportion))
-      )
+                        dplyr::select(c(locationMatrix, proportion)))
 
-final_proportions
+#final_proportions
 
 ## export pretty table
 pretty_proportions <- left_join(final_proportions, plastic_proportions, by = "locationMatrix") %>%
-  dplyr::select(c(locationMatrix,Sample.Type, location_fix, proportion.x))
+  dplyr::select(c(Sample.Type,  location_fix, proportion.x)) %>% 
+  replace_na(list(location_fix = "general")) %>% 
+  pivot_wider(names_from = location_fix, values_from = proportion.x, values_fn = list) %>% 
+  unnest(cols = everything())
+
+pretty_proportions
 
 write.csv(pretty_proportions,
           "output/data/final_plastic_proportion.csv"
           )
 ```
+
+#### Breakdown of poylmers in categories
+##### Collapsible Tree
+```{r}
+tree <- long_polymer2 %>%
+  group_by(general, Polymer) %>% 
+  #summarize("AveProportion" =mean(proportion)) %>% 
+  summarize("AveProportion" = paste0(round(mean(proportion),2),"%")) %>% 
+  collapsibleTree(long_polymer2,
+                hierarchy = c("general", "Polymer"),#,"AveProportion"),
+                width = 800,
+                zoomable = FALSE,
+                #attribute = "AveProportion",
+                fill = c(
+                  # The root
+                  "Category",
+                  # Unique regions
+                  rep("brown", length(unique(long_polymer2$general))),
+                  # Unique classes per region
+                  rep("khaki", length(unique(paste(long_polymer2$general, long_polymer2$Polymer))))
+                  ),
+                root = "Category",
+                fontSize = 14,
+                collapsed = FALSE)
+
+
+tree
+```
+```{r eval=FALSE, include=TRUE}
+htmltools::save_html(tree, file="output/figures/tree.html")
+```
+
+##### Stacked bar plot
+
+
+```{r}
+specific_proportions <- long_polymer2 %>% 
+  group_by(Sample.Type, general, Polymer) %>% 
+  summarize(ave.prop = mean(proportion), sd.prop = sd(proportion))
+
+specific_proportions
+
+specific_proportions_graph <- specific_proportions %>% 
+  ggplot(aes(x = ave.prop, y = Sample.Type, fill = general)) +
+  geom_col() +
+  #geom_errorbarh(aes(xmax = ave.prop + sd.prop, xmin = ave.prop - sd.prop),
+   #              height = 0.2,
+    #             position = "identity") +
+  scale_x_continuous(name = "Plastic % of Sub-Sampled Particles (mean +- SD)",
+                     limits = c(0,100),
+                     labels = scales::percent_format(scale = 1)) +
+  scale_fill_d3(name = "Particle Category") +
+  theme.type +
+  theme(#legend.position = "none",
+        axis.title.y = element_blank())
+
+specific_proportions_graph
+```
+
+##### Stacked bar plot polymers
+
+###### Collapse categories with few polymers
+```{r}
+simple_polymer_summary <- long_polymer2 %>% 
+  group_by(Sample.Type, general, Polymer) %>% 
+  mutate(Polymer = as.character(Polymer)) %>% 
+  summarize(ave.prop = mean(proportion), sd.prop = sd(proportion)) %>% 
+  #group the low occuring plastics into "other"
+  mutate(polymer_simple = case_when(ave.prop <= 1 ~ "Other plastics",
+                                    ave.prop > 1 ~ Polymer)) %>% 
+#re-summarize based on new collapsed categories
+  group_by(polymer_simple, Sample.Type, general) %>% 
+  summarize(prop = sum(ave.prop)) %>% 
+  filter(general == "plastic")
+
+simple_polymer_summary
+
+levels(factor(simple_polymer_summary$polymer_simple))
+```
+
+```{r}
+specific_proportions_polymers_graph <- specific_proportions %>% 
+  filter(general %in% c("plastic")) %>% 
+  ggplot(aes(x = ave.prop, y = Sample.Type, fill = Polymer)) +
+  geom_col(position = "fill") +
+  #geom_errorbarh(aes(xmax = ave.prop + sd.prop, xmin = ave.prop - sd.prop),
+   #              height = 0.2,
+    #             position = "identity") +
+ scale_x_continuous(name = "Plastic % of Sub-Sampled Particles (mean +- SD)",
+                   limits = c(0,1),
+                  labels = scales::percent_format(scale = 1)) +
+  scale_fill_manual(values = cal_palette(name = "sierra1", n =15, type = "continuous")) +
+  theme.type +
+  theme(#legend.position = "none",
+        axis.title.y = element_blank())
+
+specific_proportions_polymers_graph
+```
+
 
 ### Apply correciton factors
 
