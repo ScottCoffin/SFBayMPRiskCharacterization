@@ -397,8 +397,7 @@ site_polymer_percentages <-  readxl::read_excel("data/grab_with_dates.xlsx", she
 #SF bay data
 particle.data <- readxl::read_xlsx("data/2020-09-08_MooreParticleData.xlsx")
 
-manta.data <- particle.data %>% 
-  filter(SampleMatrix == "manta") %>% 
+particle.data.clean <- particle.data %>% 
   mutate_if(is.character,  as.factor) %>% 
   mutate(Size_um = 1000 * Length.mm) %>% 
   #extract matrices
@@ -410,7 +409,6 @@ manta.data <- particle.data %>%
                             grepl("effluent", MatrixName) ~ "effluent")) %>% 
     #remove duplicates 
   filter(!str_detect(SampleID, "DUP")) %>% 
-  
   #annotate locations
   mutate(site = case_when(
     grepl("NB", SampleID,ignore.case = FALSE) ~ "North Bay",
@@ -430,7 +428,7 @@ manta.data <- particle.data %>%
   replace_na(list(site = "general")) %>% 
   droplevels()
   
-
+manta.data <- particle.data.clean %>% filter(SampleMatrix == "manta")
 #examine completeness of locations assignments
 skim(manta.data)
 
@@ -500,12 +498,12 @@ manta.polymer.simple <- manta.polymer.percentages %>%
   rename(location = site,
          Polymer = PlasticType,
          proportion = freq) %>% 
-  dplyr::select(c(Sample.Type, Polymer, location, proportion, general))
+  dplyr::select(c(Sample.Type, Polymer, location, proportion))
 
 
 #full dataframe
-polymer_site_matrices <- rbind(long_polymer2, manta.polymer.simple) %>% 
-  dplyr::select(-c(general)) %>% 
+polymer_site_matrices <- rbind(long_polymer, manta.polymer.simple) %>% 
+  #dplyr::select(-c(general)) %>% 
   mutate(Sample.Type = case_when(Sample.Type == "Surface" ~ "Surface (1L-grab)",
                                  TRUE ~ as.character(Sample.Type))) %>% 
   mutate(Polymer = case_when(
@@ -519,9 +517,12 @@ polymer_site_matrices <- rbind(long_polymer2, manta.polymer.simple) %>%
     Polymer == "Acrylic, acrylate" ~ "Acrylic",
     Polymer == "Cotton" ~ "Non-Synthetic Fiber (cotton, silk, wool)",
     Polymer == "Wool" ~ "Non-Synthetic Fiber (cotton, silk, wool)",
-    Polymer == "Asphalt" ~ "Other anthropogenic (asphalt, rubber, paint, wax)",
+    Polymer == "Asphalt" ~ "Other anthropogenic (asphalt, wax)",
+    Polymer == "Other anthropogenic (asphalt, rubber, paint, wax)"  ~ "Other anthropogenic (asphalt, wax)",
+    Polymer == "Stearates, Lubricants, Waxes"  ~ "Stearates, Lubricants",
     TRUE ~ as.character(Polymer)
   )) %>% 
+  #reclassigy upper level
    mutate(general = case_when(
     grepl("Unknown", Polymer, ignore.case = TRUE) ~ "unknown",
     grepl("anthropogenic", Polymer, ignore.case = TRUE) ~ "anthropogenic (not plastic)",
@@ -532,7 +533,8 @@ polymer_site_matrices <- rbind(long_polymer2, manta.polymer.simple) %>%
     Polymer == "Cellulosic" ~ "natural",
     Polymer == "Glass" ~ "anthropogenic (not plastic)",
     Polymer == "Asphalt" ~ "anthropogenic (not plastic)",
-    Polymer == "Not Characterized" ~ "Not Characterized"
+    Polymer == "Not Characterized" ~ "Not Characterized",
+    Polymer == "Stearates, Lubricants" ~ "anthropogenic (not plastic)"
     )) %>% 
   replace_na(list(general = "plastic"))
 
@@ -792,6 +794,100 @@ ggsave(plot = proportions_polymers_arranged,
        filename = "proportions_arranged_polymers.jpeg",
        path = "output/figures/", 
        width = 10, height = 8, units = "in",
+       bg = "white",
+       dpi = 300)
+```
+#### Morphology differences
+```{r}
+particle.data.clean.plastic <- particle.data.clean %>% 
+  rename(Polymer = PlasticType) %>% 
+  #annotate polymer types
+   mutate(Polymer = case_when(
+    Polymer == "PP" ~ "Polypropylene",
+    Polymer == "PU" ~ "Polyurethane",
+    Polymer == "PVC" ~ "Polyvinyl chloride",
+    Polymer == "PTFE" ~ "Polytetrafluoroethylene",
+    Polymer == "PS" ~ "Polystyrene",
+    Polymer == "PE" ~ "Polyethylene",
+    Polymer == "ABS" ~ "Acrylonitrile butadiene styrene",
+    Polymer == "Acrylic, acrylate" ~ "Acrylic",
+    Polymer == "Cotton" ~ "Non-Synthetic Fiber (cotton, silk, wool)",
+    Polymer == "Wool" ~ "Non-Synthetic Fiber (cotton, silk, wool)",
+    Polymer == "Asphalt" ~ "Other anthropogenic (asphalt, wax)",
+    Polymer == "Other anthropogenic (asphalt, rubber, paint, wax)"  ~ "Other anthropogenic (asphalt, wax)",
+    Polymer == "Stearates, Lubricants, Waxes"  ~ "Stearates, Lubricants",
+    TRUE ~ as.character(Polymer)
+  )) %>% 
+  #reclassigy upper level
+   mutate(general = case_when(
+    grepl("Unknown", Polymer, ignore.case = TRUE) ~ "unknown",
+    grepl("anthropogenic", Polymer, ignore.case = TRUE) ~ "anthropogenic (not plastic)",
+    grepl("natural", Polymer, ignore.case = TRUE) ~ "natural",
+    Polymer == "Non-Synthetic Fiber (cotton, silk, wool)" ~ "natural",
+    Polymer == "Wool" ~ "natural",
+    Polymer == "Cotton" ~ "natural",
+    Polymer == "Cellulosic" ~ "natural",
+    Polymer == "Glass" ~ "anthropogenic (not plastic)",
+    Polymer == "Asphalt" ~ "anthropogenic (not plastic)",
+    Polymer == "Not Characterized" ~ "Not Characterized",
+    Polymer == "Stearates, Lubricants" ~ "anthropogenic (not plastic)"
+    )) %>% 
+  replace_na(list(general = "plastic")) %>% 
+  #remove everything other than plastic
+  filter(general == "plastic") %>% 
+  #relevel sample types
+  mutate(Sample.Type = factor(case_when(SampleMatrix == "manta" ~ "Surface (Manta Trawl)",
+                                 SampleMatrix == "sw" ~ "Surface (1L-grab)",
+                                 SampleMatrix == "fish" ~ "Fish",
+                                 SampleMatrix == "sed" ~ "Sediment",
+                                 SampleMatrix == "eff" ~ "Storm")))
+
+skim(particle.data.clean.plastic)
+```
+
+
+###### Summarize Morphologies
+```{r}
+# get numbers for each sample.type
+total_samples <- particle.data.clean.plastic %>% 
+  group_by(Sample.Type) %>% 
+  summarize(total = n())
+
+#total_samples 
+# calculate proportions of shapes for each matrix
+simple_shape_summary <- particle.data.clean.plastic %>% 
+  group_by(Sample.Type, MorphologicalCategory) %>% 
+  summarize(shape_count = n()) %>% 
+  left_join(total_samples, by = "Sample.Type") %>% 
+  mutate(proportion = shape_count / total)
+
+simple_shape_summary
+```
+
+```{r}
+specific_proportions_shapes_graph <- simple_shape_summary %>% 
+  ggplot(aes(x = proportion, y = Sample.Type, fill = MorphologicalCategory)) +
+  geom_col(position = "fill") +
+  #geom_errorbarh(aes(xmax = ave.prop + sd.prop, xmin = ave.prop - sd.prop),
+   #              height = 0.2,
+    #             position = "identity") +
+ scale_x_continuous(name = "Relative Percentages of Shapes of Confirmed Plastic Particles",
+#                   limits = c(0,100),
+                  labels = scales::percent_format(scale = 100)) +
+ scale_fill_npg() +
+  theme.type +
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        legend.text = element_text(size = 16),
+        axis.title.y = element_blank())
+
+specific_proportions_shapes_graph
+```
+```{r}
+ggsave(plot = specific_proportions_shapes_graph,
+       filename = "specific_proportions_shapes_graph.jpg",
+       path = "output/figures/", 
+       width = 8, height = 5, units = "in",
        bg = "white",
        dpi = 300)
 ```
