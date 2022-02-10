@@ -1,6 +1,6 @@
 "","aboveThreshold","Conc","conc.lower.68","conc.lower.95","conc.lower.99","conc.upper.68","conc.upper.95","conc.upper.99","Conc.percent","conc.lower.95.percent","conc.upper.95.percent"
-"1","belowThreshold1",58,58,58,58,58,57,57,1,1,0.982758620689655
-"2","aboveThreshold1",0,0,0,0,0,1,1,0,0,0.0172413793103448
+"1","belowThreshold1",65,65,65,65,65,64,64,1,1,0.984615384615385
+"2","aboveThreshold1",0,0,0,0,0,1,1,0,0,0.0153846153846154
 "3","aboveThreshold2",0,0,0,0,0,0,0,0,0,0
 "4","aboveThreshold3",0,0,0,0,0,0,0,0,0,0
 "5","aboveThreshold4",0,0,0,0,0,0,0,0,0,0

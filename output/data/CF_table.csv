@@ -1,7 +1,7 @@
 "","Sampling.apparatus","matrix","mesh_size","CF","CF.lower.95","CF.upper.95"
-"1","1-L grab","Surface",50,50.49,16.43,158.34
+"1","1-L grab","Surface (1L-grab)",50,50.49,16.43,158.34
 "2","24-hr pipe","Storm",106,59.87,19.33,192.2
 "3","Composite","WWTP",110,17.03,7.05,44.16
-"4","Manta Trawl","Surface",333,356.69,70.66,1893.56
+"4","Manta Trawl","Surface (Manta Trawl)",333,356.69,70.66,1893.56
 "5","otter trawl/cast net","Fish",25,11.38,4.17,32.78
 "6","Van Veen Grab","Sediment",45,66.21,27.34,161.5

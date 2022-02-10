@@ -388,12 +388,100 @@ sfBay2 <- rbind(sfBay_noGrab, grab_with_dates_new) %>%
 
 Site-specific polymer percentages are reported in Table S18 of Zhu et al (2021) https://pubs.acs.org/doi/10.1021/acsestwater.0c00292?goto=supporting-info 
 Data from this table were imported into excel and are used to correct for plastic percentages in locaiton-specific compartments below.
-
-### Derive correction factors
+### Read in Data
 ```{r}
 #read in table S18
 site_polymer_percentages <-  readxl::read_excel("data/grab_with_dates.xlsx", sheet = "relative_abundances", na = "N/A") %>% mutate_if(is.character, as.factor)
 
+#more granular particle data from CEDEN (for splitting manta and grab ONLY)
+#SF bay data
+particle.data <- readxl::read_xlsx("data/2020-09-08_MooreParticleData.xlsx")
+
+manta.data <- particle.data %>% 
+  filter(SampleMatrix == "manta") %>% 
+  mutate_if(is.character,  as.factor) %>% 
+  mutate(Size_um = 1000 * Length.mm) %>% 
+  #extract matrices
+  mutate(matrix = case_when(grepl("sediment", MatrixName) ~ "sediment",
+                            grepl("runoff", MatrixName) ~ "runoff",
+                            grepl("samplewater", MatrixName) ~ "samplewater",
+                            grepl("tissue", MatrixName) ~ "tissue",
+                            grepl("blankwater", MatrixName) ~ "blankwater",
+                            grepl("effluent", MatrixName) ~ "effluent")) %>% 
+    #remove duplicates 
+  filter(!str_detect(SampleID, "DUP")) %>% 
+  
+  #annotate locations
+  mutate(site = case_when(
+    grepl("NB", SampleID,ignore.case = FALSE) ~ "North Bay",
+    grepl("CB", SampleID,ignore.case = FALSE) ~ "Central Bay",
+    grepl("SB10", SampleID,ignore.case = FALSE) ~ "South Bay",
+    grepl("SB11", SampleID,ignore.case = FALSE) ~ "South Bay",
+    grepl("SB12", SampleID,ignore.case = FALSE) ~ "South Bay",
+    grepl("SB13", SampleID,ignore.case = FALSE) ~ "South Bay",
+    grepl("LSB", SampleID,ignore.case = FALSE) ~ "Lower South Bay",
+    grepl("NMS", SampleID,ignore.case = FALSE) ~ "National Marine Sanctuary",
+    grepl("TB", SampleID,ignore.case = FALSE) ~ "Tomales Bay",
+    grepl("SC", SampleID,ignore.case = FALSE) ~ "general",
+    grepl("SUB", SampleID,ignore.case = FALSE) ~ "general",
+    grepl("SOSL", SampleID,ignore.case = FALSE) ~ "general",
+    grepl("SPB", SampleID,ignore.case = FALSE) ~ "general",
+  )) %>% 
+  replace_na(list(site = "general")) %>% 
+  droplevels()
+  
+
+#examine completeness of locations assignments
+skim(manta.data)
+
+```
+#### Manta data summarize
+```{r}
+#get total particle counts per area
+site_counts <- manta.data %>% 
+  filter(PlasticType != "Not Characterized") %>% 
+  group_by(site) %>% 
+  summarize(total = n())
+site_counts
+
+#get site-specific manta frequencies
+manta.polymer.percentages <- manta.data %>% 
+  filter(PlasticType != "Not Characterized") %>% 
+  group_by(site, PlasticType) %>% 
+  summarize(count = n()) %>% 
+  left_join(site_counts, by = "site") %>% 
+  mutate(freq = 100 * count / total) %>% 
+  arrange(desc(freq)) %>% 
+  # annotate polymer types
+   mutate(general = case_when(
+    grepl("Unknown", PlasticType, ignore.case = TRUE) ~ "unknown",
+    grepl("anthropogenic", PlasticType, ignore.case = TRUE) ~ "unknown",
+    grepl("natural", PlasticType, ignore.case = TRUE) ~ "natural",
+    PlasticType == "Non-Synthetic Fiber (cotton, silk, wool)" ~ "natural",
+    PlasticType == "Wool" ~ "natural",
+    PlasticType == "Cotton" ~ "natural",
+    PlasticType == "Cellulosic" ~ "natural",
+    PlasticType == "Glass" ~ "anthropogenic (not plastic)",
+    PlasticType == "Asphalt" ~ "anthropogenic (not plastic)",
+    PlasticType == "Not Characterized" ~ "Not Characterized"
+    )) %>% 
+  replace_na(list(general = "plastic"))
+  
+
+manta.polymer.percentages
+```
+#### Plastic percentages for manta
+```{r}
+manta.general.percentages <- manta.polymer.percentages %>% 
+  group_by(general, site) %>% 
+  summarize(proportion.manta = sum(freq))
+
+manta.general.percentages
+```
+
+
+### Derive correction factors
+```{r}
 #long-wise
 long_polymer <- site_polymer_percentages %>% 
   pivot_longer(-c(Sample.Type, Polymer), names_to = "location", values_to = "proportion") %>% 
@@ -406,11 +494,37 @@ long_polymer %>%
 ```
 
 ```{r}
-#collapse categories
- long_polymer2 <- long_polymer %>% 
-  mutate(general = case_when(
+#### Join with manta data
+manta.polymer.simple <- manta.polymer.percentages %>%
+  mutate(Sample.Type = "Surface (Manta Trawl)") %>% 
+  rename(location = site,
+         Polymer = PlasticType,
+         proportion = freq) %>% 
+  dplyr::select(c(Sample.Type, Polymer, location, proportion, general))
+
+
+#full dataframe
+polymer_site_matrices <- rbind(long_polymer2, manta.polymer.simple) %>% 
+  dplyr::select(-c(general)) %>% 
+  mutate(Sample.Type = case_when(Sample.Type == "Surface" ~ "Surface (1L-grab)",
+                                 TRUE ~ as.character(Sample.Type))) %>% 
+  mutate(Polymer = case_when(
+    Polymer == "PP" ~ "Polypropylene",
+    Polymer == "PU" ~ "Polyurethane",
+    Polymer == "PVC" ~ "Polyvinyl chloride",
+    Polymer == "PTFE" ~ "Polytetrafluoroethylene",
+    Polymer == "PS" ~ "Polystyrene",
+    Polymer == "PE" ~ "Polyethylene",
+    Polymer == "ABS" ~ "Acrylonitrile butadiene styrene",
+    Polymer == "Acrylic, acrylate" ~ "Acrylic",
+    Polymer == "Cotton" ~ "Non-Synthetic Fiber (cotton, silk, wool)",
+    Polymer == "Wool" ~ "Non-Synthetic Fiber (cotton, silk, wool)",
+    Polymer == "Asphalt" ~ "Other anthropogenic (asphalt, rubber, paint, wax)",
+    TRUE ~ as.character(Polymer)
+  )) %>% 
+   mutate(general = case_when(
     grepl("Unknown", Polymer, ignore.case = TRUE) ~ "unknown",
-    grepl("anthropogenic", Polymer, ignore.case = TRUE) ~ "unknown",
+    grepl("anthropogenic", Polymer, ignore.case = TRUE) ~ "anthropogenic (not plastic)",
     grepl("natural", Polymer, ignore.case = TRUE) ~ "natural",
     Polymer == "Non-Synthetic Fiber (cotton, silk, wool)" ~ "natural",
     Polymer == "Wool" ~ "natural",
@@ -422,8 +536,15 @@ long_polymer %>%
     )) %>% 
   replace_na(list(general = "plastic"))
 
+
+levels(factor(polymer_site_matrices$Polymer))
+
+polymer_site_matrices 
+```
+
+```{r}
 #summarize
-summary_proportions <-  long_polymer2 %>% 
+summary_proportions <-  polymer_site_matrices %>% 
   group_by(general, location, Sample.Type) %>% 
   summarize(freq_total = sum(proportion))
   
@@ -442,7 +563,14 @@ plastic_proportions <- summary_proportions %>%
     location == "NMS" ~ "National Marine Sanctuary",
     location == "NorthBay" ~ "North Bay",
     location == "SouthBay" ~ "South Bay",
-    location == "TomalesBay" ~ "Tomales Bay")) %>% 
+    location == "TomalesBay" ~ "Tomales Bay",
+    location == "Central Bay" ~ "Central Bay",
+    location == "Lower South Bay" ~ "Lower South Bay",
+    location == "National Marine Sanctuary" ~ "National Marine Sanctuary",
+    location == "North Bay" ~ "North Bay",
+    location == "South Bay" ~ "South Bay",
+    location == "Tomales Bay" ~ "Tomales Bay")) %>% 
+  replace_na(list(location_fix = "general")) %>% 
   mutate(locationMatrix = paste(location_fix, Sample.Type))  %>% 
   ungroup() 
   
@@ -457,17 +585,19 @@ propotion_heatmap <- plastic_proportions %>%
   #filter(location_fix %in% c("Central Bay", "Lower South Bay")) %>% 
   ggplot(aes(y = location_fix, x = Sample.Type, fill = proportion)) +
   geom_tile() +
-  scale_fill_viridis(name = "Plastic % of \nSub-Sampled \nParticles",
+  scale_fill_viridis(name = "%Plastic of Sub-Sampled Particles",
                      discrete = FALSE,
                      limits = c(0,1),
                      labels = scales::percent_format(scale = 100)) +
   ylab("Location in SF Bay") +
   xlab("Compartment") +
   theme.type +
-  theme(axis.title.x = element_blank(),
+  theme(legend.position = "bottom",
+    axis.title.x = element_blank(),
         axis.title.y = element_blank(),
         panel.grid.major = element_blank(),
-    panel.grid.minor = element_blank())
+    panel.grid.minor = element_blank(),
+    legend.key.size = unit(1, 'cm'))
 
 propotion_heatmap
 ```
@@ -496,9 +626,11 @@ general_proportions_graph <- general_proportions %>%
 
 general_proportions_graph
 ```
+
 ```{r}
-proportions_arranged <- ggarrange(propotion_heatmap,general_proportions_graph,
-          labels = c("A", "B"),
+proportions_arranged <- ggarrange(general_proportions_graph,
+                                  propotion_heatmap, 
+                                  labels = c("A", "B"),
           ncol = 1,
           nrow = 2)
 
@@ -507,11 +639,10 @@ proportions_arranged
 ggsave(plot = proportions_arranged,
        filename = "proportions_arranged.jpeg",
        path = "output/figures/", 
-       width = 10, height = 6, units = "in",
+       width = 12, height = 9, units = "in",
        bg = "white",
        dpi = 300)
 ```
-
 
 #### Export table
 ```{r}
@@ -541,25 +672,26 @@ write.csv(pretty_proportions,
 #### Breakdown of poylmers in categories
 ##### Collapsible Tree
 ```{r}
-tree <- long_polymer2 %>%
+tree <- polymer_site_matrices %>%
   group_by(general, Polymer) %>% 
   #summarize("AveProportion" =mean(proportion)) %>% 
   summarize("AveProportion" = paste0(round(mean(proportion),2),"%")) %>% 
-  collapsibleTree(long_polymer2,
+  collapsibleTree(polymer_site_matrices,
                 hierarchy = c("general", "Polymer"),#,"AveProportion"),
                 width = 800,
-                zoomable = FALSE,
+                height = 1000,
+                #zoomable = FALSE,
                 #attribute = "AveProportion",
                 fill = c(
                   # The root
                   "Category",
                   # Unique regions
-                  rep("brown", length(unique(long_polymer2$general))),
+                  rep("brown", length(unique(polymer_site_matrices$general))),
                   # Unique classes per region
-                  rep("khaki", length(unique(paste(long_polymer2$general, long_polymer2$Polymer))))
+                  rep("khaki", length(unique(paste(polymer_site_matrices$general, polymer_site_matrices$Polymer))))
                   ),
                 root = "Category",
-                fontSize = 14,
+                fontSize = 13,
                 collapsed = FALSE)
 
 
@@ -573,7 +705,7 @@ htmltools::save_html(tree, file="output/figures/tree.html")
 
 
 ```{r}
-specific_proportions <- long_polymer2 %>% 
+specific_proportions <- polymer_site_matrices %>% 
   group_by(Sample.Type, general, Polymer) %>% 
   summarize(ave.prop = mean(proportion), sd.prop = sd(proportion))
 
@@ -581,17 +713,19 @@ specific_proportions
 
 specific_proportions_graph <- specific_proportions %>% 
   ggplot(aes(x = ave.prop, y = Sample.Type, fill = general)) +
-  geom_col() +
+  geom_col(position = "fill") +
   #geom_errorbarh(aes(xmax = ave.prop + sd.prop, xmin = ave.prop - sd.prop),
    #              height = 0.2,
     #             position = "identity") +
-  scale_x_continuous(name = "Plastic % of Sub-Sampled Particles (mean +- SD)",
-                     limits = c(0,100),
-                     labels = scales::percent_format(scale = 1)) +
+  scale_x_continuous(name = "Relative Percentages of % of Sub-Sampled Particles",
+#                     limits = c(0,1),
+                     labels = scales::percent_format(scale = 100)) +
   scale_fill_d3(name = "Particle Category") +
   theme.type +
-  theme(#legend.position = "none",
-        axis.title.y = element_blank())
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        axis.title.y = element_blank(),
+        legend.text = element_text(size = 14))
 
 specific_proportions_graph
 ```
@@ -600,13 +734,13 @@ specific_proportions_graph
 
 ###### Collapse categories with few polymers
 ```{r}
-simple_polymer_summary <- long_polymer2 %>% 
+simple_polymer_summary <- polymer_site_matrices %>% 
   group_by(Sample.Type, general, Polymer) %>% 
   mutate(Polymer = as.character(Polymer)) %>% 
   summarize(ave.prop = mean(proportion), sd.prop = sd(proportion)) %>% 
   #group the low occuring plastics into "other"
-  mutate(polymer_simple = case_when(ave.prop <= 1 ~ "Other plastics",
-                                    ave.prop > 1 ~ Polymer)) %>% 
+  mutate(polymer_simple = case_when(ave.prop <= 1.3 ~ "Other plastics",
+                                    ave.prop > 1.3 ~ Polymer)) %>% 
 #re-summarize based on new collapsed categories
   group_by(polymer_simple, Sample.Type, general) %>% 
   summarize(prop = sum(ave.prop)) %>% 
@@ -618,24 +752,49 @@ levels(factor(simple_polymer_summary$polymer_simple))
 ```
 
 ```{r}
-specific_proportions_polymers_graph <- specific_proportions %>% 
+#get color palette
+library(RColorBrewer)
+n <- 13#count(levels(factor(simple_polymer_summary$polymer_simple)))
+qual_col_pals = brewer.pal.info[brewer.pal.info$category == 'qual',]
+col_vector = unlist(mapply(brewer.pal, qual_col_pals$maxcolors, rownames(qual_col_pals)))
+pie(rep(1,n), col=sample(col_vector, n))
+
+specific_proportions_polymers_graph <- simple_polymer_summary %>% 
   filter(general %in% c("plastic")) %>% 
-  ggplot(aes(x = ave.prop, y = Sample.Type, fill = Polymer)) +
+  ggplot(aes(x = prop, y = Sample.Type, fill = polymer_simple)) +
   geom_col(position = "fill") +
   #geom_errorbarh(aes(xmax = ave.prop + sd.prop, xmin = ave.prop - sd.prop),
    #              height = 0.2,
     #             position = "identity") +
- scale_x_continuous(name = "Plastic % of Sub-Sampled Particles (mean +- SD)",
-                   limits = c(0,1),
-                  labels = scales::percent_format(scale = 1)) +
-  scale_fill_manual(values = cal_palette(name = "sierra1", n =15, type = "continuous")) +
+ scale_x_continuous(name = "Relative Percentages of Identified Plastics",
+#                   limits = c(0,100),
+                  labels = scales::percent_format(scale = 100)) +
+ scale_fill_manual(values = col_vector) +
   theme.type +
-  theme(#legend.position = "none",
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        legend.text = element_text(size = 14),
         axis.title.y = element_blank())
 
 specific_proportions_polymers_graph
 ```
 
+```{r}
+proportions_polymers_arranged <- ggarrange(specific_proportions_graph,
+                                  specific_proportions_polymers_graph,
+          labels = c("A", "B"),
+          ncol = 1,
+          nrow = 2)
+
+proportions_polymers_arranged
+
+ggsave(plot = proportions_polymers_arranged,
+       filename = "proportions_arranged_polymers.jpeg",
+       path = "output/figures/", 
+       width = 10, height = 8, units = "in",
+       bg = "white",
+       dpi = 300)
+```
 
 ### Apply correciton factors
 
@@ -660,7 +819,8 @@ sfBay2_recode <- sfBay2 %>%
     sample.matrix == "fish" ~ "Fish",
     sample.matrix == "sediment" ~ "Sediment",
     sample.matrix.specific == "stormwater" ~ "Storm",
-    sample.matrix.specific == "surface water" ~ "Surface",
+    sample.matrix.specific == "surface water" & Sampling.apparatus == "1-L grab" ~ "Surface (1L-grab)",
+    sample.matrix.specific == "surface water" & Sampling.apparatus == "Manta Trawl" ~ "Surface (Manta Trawl)",
     sample.matrix.specific == "wastewater" ~ "WWTP")) %>% 
     #ID
   mutate(locationMatrix = factor(paste(locationNew, matrix)))
@@ -715,17 +875,18 @@ sfBay_aligned <- sfBay3 %>%
    sample.matrix.specific == "sediment" ~ CFfnx(a = alpha.sediment, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
    sample.matrix.specific == "wastewater" ~ CFfnx(a = alpha.wastewater, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
    sample.matrix.specific == "stormwater" ~ CFfnx(a = alpha.stormwater, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
-   sample.matrix == "fish" ~ CFfnx(a = alpha.fish, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set)),
+   sample.matrix == "fish" ~ CFfnx(a = alpha.fish, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set))#,
    
-   #upper 95% CI
-   CF_upper95 = case_when(
-    sample.matrix.specific == "surface water" ~ CFfnx(a = alpha.marine, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
-   sample.matrix.specific == "sediment" ~ CFfnx(a = alpha.sediment, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
-   sample.matrix.specific == "wastewater" ~ CFfnx(a = alpha.wastewater, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
-   sample.matrix.specific == "stormwater" ~ CFfnx(a = alpha.stormwater, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
-   sample.matrix == "fish" ~ CFfnx(a = alpha.fish, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+   # #upper 95% CI
+   # CF_upper95 = case_when(
+   #  sample.matrix.specific == "surface water" ~ CFfnx(a = alpha.marine, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+   # sample.matrix.specific == "sediment" ~ CFfnx(a = alpha.sediment, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+   # sample.matrix.specific == "wastewater" ~ CFfnx(a = alpha.wastewater, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+   # sample.matrix.specific == "stormwater" ~ CFfnx(a = alpha.stormwater, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+   # sample.matrix == "fish" ~ CFfnx(a = alpha.fish, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
    
-   )) %>% 
+#   )
+) %>% 
   mutate(particle.L.master = particles.L.blank.corrected.particle.corrected * CF,
          particle.fish.master = particles.fish.blank.corrected.particle.corrected * CF,
          particles.kg.master = particles.kg.blank.corrected.particle.corrected * CF) %>% 
@@ -975,9 +1136,9 @@ probability_distributions.Rmd determines the size power law for marine surface w
 # alpha.marine.minus.three <- alpha.marine - (3 * alpha.marine.se)
 
 #create dataframe with PDFs derived in probability_distributions.Rmd
-alignment_factors <- data.frame("matrix" = c("Surface", "Fish", "Storm", "WWTP", "Sediment"),
-                                "alpha" = c(alpha.marine, alpha.fish, alpha.stormwater, alpha.wastewater, alpha.sediment),
-                                "alpha.se" = c(alpha.marine.se, alpha.fish.se, alpha.stormwater.se, alpha.wastewater.se, alpha.sediment.se)) %>% 
+alignment_factors <- data.frame("matrix" = c("Surface (1L-grab)", "Surface (Manta Trawl)", "Fish", "Storm", "WWTP", "Sediment"),
+                                "alpha" = c(alpha.marine, alpha.marine, alpha.fish, alpha.stormwater, alpha.wastewater, alpha.sediment),
+                                "alpha.se" = c(alpha.marine.se, alpha.marine.se, alpha.fish.se, alpha.stormwater.se, alpha.wastewater.se, alpha.sediment.se)) %>% 
   mutate(alpha.upper.68 = alpha + alpha.se,
          alpha.lower.68 = alpha - alpha.se,
          alpha.upper.95 = alpha + (1.96*alpha.se),
@@ -1001,23 +1162,23 @@ sensitivity <- sfBay_new2 %>%
          CF.lower.95 = CFfnx(a = alpha.lower.95, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
          CF.lower.99 = CFfnx(a = alpha.lower.99, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set)) %>%
   #apply correction fcators
-  mutate(conc.upper.68 = case_when(sample.matrix == "water" ~ CF.upper.68 * unaligned.particle.L.master,
+  mutate(conc.upper.68 = case_when(sample.matrix.specific == "surface water" ~ CF.upper.68 * unaligned.particle.L.master,
                                    sample.matrix == "sediment" ~ CF.upper.68 * particles.kg.blank.corrected.particle.corrected,
                                    sample.matrix == "fish" ~ CF.upper.68 * particles.fish.blank.corrected.particle.corrected),
-         conc.upper.95 =  case_when(sample.matrix == "water" ~ CF.upper.95 * unaligned.particle.L.master,
+         conc.upper.95 =  case_when(sample.matrix.specific == "surface water" ~ CF.upper.95 * unaligned.particle.L.master,
                                    sample.matrix == "sediment" ~ CF.upper.95 * particles.kg.blank.corrected.particle.corrected,
                                    sample.matrix == "fish" ~ CF.upper.95 * particles.fish.blank.corrected.particle.corrected),
-         conc.upper.99 =  case_when(sample.matrix == "water" ~ CF.upper.99 * unaligned.particle.L.master,
+         conc.upper.99 =  case_when(sample.matrix.specific == "surface water" ~ CF.upper.99 * unaligned.particle.L.master,
                                    sample.matrix == "sediment" ~ CF.upper.99 * particles.kg.blank.corrected.particle.corrected,
                                    sample.matrix == "fish" ~ CF.upper.99 * particles.fish.blank.corrected.particle.corrected),
          ## lower intervals
-         conc.lower.68 = case_when(sample.matrix == "water" ~ CF.lower.68 * unaligned.particle.L.master,
+         conc.lower.68 = case_when(sample.matrix.specific == "surface water" ~ CF.lower.68 * unaligned.particle.L.master,
                                    sample.matrix == "sediment" ~ CF.lower.68 * particles.kg.blank.corrected.particle.corrected,
                                    sample.matrix == "fish" ~ CF.lower.68 * particles.fish.blank.corrected.particle.corrected),
-         conc.lower.95 =  case_when(sample.matrix == "water" ~ CF.lower.95 * unaligned.particle.L.master,
+         conc.lower.95 =  case_when(sample.matrix.specific == "surface water" ~ CF.lower.95 * unaligned.particle.L.master,
                                    sample.matrix == "sediment" ~ CF.lower.95 * particles.kg.blank.corrected.particle.corrected,
                                    sample.matrix == "fish" ~ CF.lower.95 * particles.fish.blank.corrected.particle.corrected),
-         conc.lower.99 =  case_when(sample.matrix == "water" ~ CF.lower.99 * unaligned.particle.L.master,
+         conc.lower.99 =  case_when(sample.matrix.specific == "surface water" ~ CF.lower.99 * unaligned.particle.L.master,
                                    sample.matrix == "sediment" ~ CF.lower.99 * particles.kg.blank.corrected.particle.corrected,
                                    sample.matrix == "fish" ~ CF.lower.99 * particles.fish.blank.corrected.particle.corrected)
   )

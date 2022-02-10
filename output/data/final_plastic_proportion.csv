@@ -1,11 +1,13 @@
-"","Sample.Type","Central Bay","Lower South Bay","National Marine Sanctuary","North Bay","South Bay","Tomales Bay","general"
-"1","Fish",0.21,0.15,NA,NA,0.22,0.13,NA
-"2","Sediment",0.44,0.5,NA,0.39,0.39,0.18,NA
-"3","Storm",0.36,0.63,NA,0.45,0.43,NA,NA
-"4","Surface",0.62,0.72,0.34,0.32,0.45,NA,NA
-"5","WWTP",0.36,0.23,NA,0.26,NA,NA,NA
-"6",NA,NA,NA,NA,NA,NA,NA,0.1775
-"7",NA,NA,NA,NA,NA,NA,NA,0.38
-"8",NA,NA,NA,NA,NA,NA,NA,0.4675
-"9",NA,NA,NA,NA,NA,NA,NA,0.49
-"10",NA,NA,NA,NA,NA,NA,NA,0.283333333333333
+"","Sample.Type","Central Bay","general","Lower South Bay","National Marine Sanctuary","North Bay","South Bay","Tomales Bay"
+"1","Surface (Manta Trawl)",0.795040116703136,0.632768361581921,0.930875576036866,0.650969529085873,NA,0.777089783281734,NA
+"2","Surface (Manta Trawl)",0.795040116703136,0.757348673337906,0.930875576036866,0.650969529085873,NA,0.777089783281734,NA
+"3","Fish",0.21,NA,0.15,NA,NA,0.22,0.13
+"4","Sediment",0.44,NA,0.5,NA,0.39,0.39,0.18
+"5","Storm",0.36,NA,0.63,NA,0.45,0.43,NA
+"6","Surface (1L-grab)",0.62,NA,0.72,0.34,0.32,0.45,NA
+"7","WWTP",0.36,NA,0.23,NA,0.26,NA,NA
+"8",NA,NA,0.1775,NA,NA,NA,NA,NA
+"9",NA,NA,0.38,NA,NA,NA,NA,NA
+"10",NA,NA,0.4675,NA,NA,NA,NA,NA
+"11",NA,NA,0.49,NA,NA,NA,NA,NA
+"12",NA,NA,0.283333333333333,NA,NA,NA,NA,NA
