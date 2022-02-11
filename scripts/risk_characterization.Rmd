@@ -44,32 +44,29 @@ library(collapsibleTree)
 ```
 
 # Hazard Concentration and Alignment Parameters
+CF sd's based on https://nicoco007.github.io/Propagation-of-Uncertainty-Calculator/ 
 ```{r}
 ###### Choose concentration alignment parameters####
 alpha.stormwater <- 1.87
-alpha.stormwater.se <- 0.13
-alpha.stormwater.upper.95 <- alpha.stormwater + 1.96 * alpha.stormwater.se
-alpha.stormwater.lower.95 <- alpha.stormwater - 1.96 * alpha.stormwater.se
+alpha.stormwater.sd <- 0.13
+alpha.stormwater.n <- 22
 
-alpha.marine = 2.00 #based on SFEI dataset
-alpha.marine.se <- 0.15 #based on SFEI dataset
-alpha.marine.upper.95 <- alpha.marine + 1.96 * alpha.marine.se
-alpha.marine.lower.95 <- alpha.marine - 1.96 * alpha.marine.se
+alpha.marine <- 2.00 #based on SFEI dataset
+alpha.marine.sd <- 0.15 #based on SFEI dataset
+alpha.marine.n <- 23
+#alpha.marine.rsd <- alpha.marine.se / alpha.marine
 
 alpha.wastewater <- 1.58
-alpha.wastewater.se <- 0.11
-alpha.wastewater.upper.95 <- alpha.wastewater + 1.96 * alpha.wastewater.se
-alpha.wastewater.lower.95 <- alpha.wastewater - 1.96 * alpha.wastewater.se
+alpha.wastewater.sd <- 0.11
+alpha.wastewater.n <- 20
 
 alpha.sediment <- 2.10
-alpha.sediment.se <- 0.12
-alpha.sediment.upper.95 <- alpha.sediment + 1.96 * alpha.sediment.se
-alpha.sediment.lower.95 <- alpha.sediment - 1.96 * alpha.sediment.se
+alpha.sediment.sd <- 0.12
+alpha.sediment.n <- 17
 
 alpha.fish <- 1.75
-alpha.fish.se <- 0.17
-alpha.fish.upper.95 <- alpha.fish + 1.96 * alpha.fish.se
-alpha.fish.lower.95 <- alpha.fish - 1.96 * alpha.fish.se
+alpha.fish.sd <- 0.17
+alpha.fish.n <- 15
 
 #based on Kooi
 alpha.freshwater = 2.64 #table s4 from Kooi et al 2021 for freshwater surface water. length
@@ -468,6 +465,86 @@ manta.polymer.percentages <- manta.data %>%
 
 manta.polymer.percentages
 ```
+#### ANOVA to determine site-specific differences
+
+```{r}
+manta.data.annotated <- manta.data %>% 
+   # annotate polymer types
+   mutate(general = case_when(
+    grepl("Unknown", PlasticType, ignore.case = TRUE) ~ "unknown",
+    grepl("anthropogenic", PlasticType, ignore.case = TRUE) ~ "unknown",
+    grepl("natural", PlasticType, ignore.case = TRUE) ~ "natural",
+    PlasticType == "Non-Synthetic Fiber (cotton, silk, wool)" ~ "natural",
+    PlasticType == "Wool" ~ "natural",
+    PlasticType == "Cotton" ~ "natural",
+    PlasticType == "Cellulosic" ~ "natural",
+    PlasticType == "Glass" ~ "anthropogenic (not plastic)",
+    PlasticType == "Asphalt" ~ "anthropogenic (not plastic)",
+    PlasticType == "Not Characterized" ~ "Not Characterized"
+    )) %>% 
+  replace_na(list(general = "plastic")) %>% 
+  filter(PlasticType != "Not Characterized")
+
+#get total IDed particle counts for each sample
+manta.total.particles.sample <- manta.data.annotated %>% 
+  group_by(SampleID) %>% 
+  summarize(total.particles = n())
+
+#get plastic particle count per sample (for ANOVA)
+manta.sample.plastic.percentages <- manta.data.annotated %>% 
+  filter(general == "plastic") %>% 
+  group_by(SampleID, site) %>% 
+  summarize(plastic.particles = n()) %>% 
+#join with total particle count
+  left_join(manta.total.particles.sample, by = "SampleID") %>% 
+  mutate(freq = 100 * plastic.particles / total.particles)
+
+#summarize for barploy
+manta.site.plastic.percentages <- manta.sample.plastic.percentages %>% 
+  #get mean, SD, and N for plastic percentages within each location
+  group_by(site) %>% 
+  summarize(ave.proportion = mean(freq), sd.proportion = sd(freq), n.samples = n()) %>% 
+  mutate(se.proportion = sd.proportion / sqrt(n.samples))
+
+manta.site.plastic.percentages
+
+write.csv(manta.site.plastic.percentages,
+          "output/data/manta.site.plastic.percentages.csv")
+```
+##### GRAPH
+```{r}
+manta.site.plastic.percentages.graph <- manta.site.plastic.percentages %>% 
+  mutate(site_factor = fct_reorder(site, ave.proportion)) %>% 
+  ggplot(aes(x  = ave.proportion, y = site_factor, fill = site_factor)) +
+  geom_col() +
+  geom_errorbarh(aes(xmax = ave.proportion + se.proportion, xmin = ave.proportion - se.proportion),
+                 height = 0.6) +
+  scale_x_continuous(name = "Plastic % of Sub-Sampled Particles (mean +- SE)",
+                     limits = c(0,100),
+                     labels = scales::percent_format(scale = 1)) +
+  scale_fill_uchicago() +
+  theme.type +
+  theme(legend.position = "none",
+        axis.title.y = element_blank())
+
+manta.site.plastic.percentages.graph
+```
+```{r}
+ggsave(plot = manta.site.plastic.percentages.graph,
+       filename = "manta.site.plastic.percentages.graph.jpeg",
+       path = "output/figures/", 
+       width = 7, height = 5, units = "in",
+       bg = "white",
+       dpi = 300)
+```
+##### ANOVA
+```{r}
+summary(aov(freq ~ site,
+  data = manta.sample.plastic.percentages))
+```
+
+Because the one-way anova is not significant, plastic particle proportion corrections should be applied generically instead of on a site-specific basis.
+
 #### Plastic percentages for manta
 ```{r}
 manta.general.percentages <- manta.polymer.percentages %>% 
@@ -610,15 +687,16 @@ Polymer percentages are not available for all locations, so general proportions 
 ```{r}
 general_proportions <- plastic_proportions %>% 
   group_by(Sample.Type) %>% 
-  summarize(ave.prop = mean(proportion), sd.prop = sd(proportion))
+  summarize(ave.prop = mean(proportion), sd.prop = sd(proportion), n.prop = n())
 
 general_proportions
 
 general_proportions_graph <- general_proportions %>% 
   ggplot(aes(x = ave.prop, y = Sample.Type, fill = Sample.Type)) +
   geom_col() +
-  geom_errorbarh(aes(xmax = ave.prop + sd.prop, xmin = ave.prop - sd.prop)) +
-  scale_x_continuous(name = "Plastic % of Sub-Sampled Particles (mean +- SD)",
+  geom_errorbarh(aes(xmax = ave.prop + (sd.prop / sqrt(n.prop)), xmin = ave.prop -(sd.prop / sqrt(n.prop))),
+                 height = 0.6) +
+  scale_x_continuous(name = "Plastic % of Sub-Sampled Particles (mean +- SE)",
                      limits = c(0,1),
                      labels = scales::percent_format(scale = 100)) +
   scale_fill_futurama() +
@@ -892,8 +970,21 @@ ggsave(plot = specific_proportions_shapes_graph,
        dpi = 300)
 ```
 
-### Apply correciton factors
+### Apply correction factors
+Since ANOVA demonstrated no differences in location for manta, use overall percentages to correct data
+#### Generic correction factor for manta trawl
+```{r}
+manta.correction <- manta.sample.plastic.percentages %>% 
+  group_by() %>% 
+  summarize(proportion = mean(freq), sd.proportion = sd(freq), n.proportion = n()) %>% 
+  mutate(se.proportion = sd.proportion/sqrt(n.proportion)) %>% 
+  mutate(proportion.upper95 = proportion + 1.96*se.proportion,
+         proportion.lower95 = proportion - 1.96*se.proportion)
 
+manta.correction
+```
+
+#### Site-specific for other matrices
 ```{r}
 ##recode missing levels into generic (NA)
 sfBay2_recode <- sfBay2 %>% 
@@ -926,8 +1017,27 @@ sfBay2_recode
 
 
 ```{r}
+#extract generic correction factors for manta
+manta.correction.proportion <- as.numeric(manta.correction$proportion[1] / 100)
+manta.correction.upper95 <- manta.correction$proportion.upper95[1] / 100
+manta.correction.lower95 <- manta.correction$proportion.lower95[1] / 100
+manta.correction.sd <- manta.correction$sd.proportion[1] / 100
+manta.correction.n <- manta.correction$n.proportion[1]
+
 #join tables
-sfBay2_joined <- left_join(sfBay2_recode, final_proportions, by = "locationMatrix")
+sfBay2_joined <- left_join(sfBay2_recode, final_proportions, by = "locationMatrix") %>% 
+  #replace manta with generic correction factor
+  mutate(proportion = case_when(
+    Sampling.apparatus == "Manta Trawl" ~ manta.correction.proportion,
+    TRUE ~ as.numeric(as.character(proportion)))) %>% 
+  mutate(proportion.upper95 = case_when(
+    Sampling.apparatus == "Manta Trawl" ~ manta.correction.upper95)) %>% 
+  mutate(proportion.lower95 = case_when(
+    Sampling.apparatus == "Manta Trawl" ~ manta.correction.lower95)) %>% 
+mutate(proportion.sd = case_when(
+    Sampling.apparatus == "Manta Trawl" ~ manta.correction.sd)) %>% 
+  mutate(proportion.n = case_when(
+    Sampling.apparatus == "Manta Trawl" ~ manta.correction.n))
 
 sfBay2_joined 
 ```
@@ -938,7 +1048,13 @@ Cleanup and apply general correction factors when site-specific data were unavai
 sfBay3 <- sfBay2_joined %>% 
   mutate(particles.L.blank.corrected.particle.corrected = particles.L.blank.corrected * proportion,
          particles.fish.blank.corrected.particle.corrected = particles.fish.blank.corrected * proportion,
-         particles.kg.blank.corrected.particle.corrected = particles.kg.blank.corrected * proportion)
+         particles.kg.blank.corrected.particle.corrected = particles.kg.blank.corrected * proportion,
+         # CI's
+         particles.L.blank.corrected.particle.corrected.upper95 = particles.L.blank.corrected * proportion.upper95,
+         particles.L.blank.corrected.particle.corrected.lower95 = particles.L.blank.corrected * proportion.lower95,
+         particles.L.blank.corrected.particle.corrected.sd = particles.L.blank.corrected * proportion.sd)
+
+sfBay3
 ```
 
 
@@ -1218,32 +1334,47 @@ exceedance <- dfSFEI_exceedance  %>%
 exceedance
 ```
 #### Sensitivity Analysis based on Alignments
+To propagate uncertainty between the function of the proportion of plastic particles and correction factor , we approximate the new uncertainty using a 1st order Taylor series.
+
+[https://my.che.utah.edu/~tony/img/Equations/error_prop/10_error_propagation_clip_image002_0004.gif]
+
 <!-- Table S4 from Kooi et al (2021) includes the mean +- standard deviation for power law exponents. To test the sensitivity of this risk characterization based on alignments, a range of power law exponents for particle length are used within the upper and lower 99% of the data from which the power law exponent was derived. For marine surface water, the alpha value of 2.07 has a standard deviation of 0.03 (Kooi et al 2021). The mean plus or minus one, two, and three standard deviations are used to calculate risk exceedances to test sensitivity. -->
 
 probability_distributions.Rmd determines the size power law for marine surface waters in SF Bay of 1.89 +- 0.084 which is used to estiamte the uncertainty here
 
 ##### Align
+
+https://nicoco007.github.io/Propagation-of-Uncertainty-Calculator/  is used to derive propoagation of uncertaint equation for Alpha
 ```{r}
-# alpha.marine.plus.one <- alpha.marine + alpha.marine.se
-# alpha.marine.plus.two <- alpha.marine + (2 * alpha.marine.se)
-# alpha.marine.plus.three <- alpha.marine + (3 * alpha.marine.se)
-# alpha.marine.minus.one <- alpha.marine - alpha.marine.se
-# alpha.marine.minus.two <- alpha.marine - (2 * alpha.marine.se)
-# alpha.marine.minus.three <- alpha.marine - (3 * alpha.marine.se)
+# used online calculator to derive correction factor SD for correction factor for 333 um mesh aligned to 1 to 5,000micron for alpha sd of 0.15
+#result: 300.5
+CF.1Lgrab.sd <- 29.3
+CF.manta.trawl.sd <- 356.7
+CF.sediment.sd <- 30.0
+CF.stormwater.sd <- 5.5 #(based on 105 um mesh size )
+CF.wastewater.sd <- 7.8
+CF.fish.sd <- 6.06
+
 
 #create dataframe with PDFs derived in probability_distributions.Rmd
 alignment_factors <- data.frame("matrix" = c("Surface (1L-grab)", "Surface (Manta Trawl)", "Fish", "Storm", "WWTP", "Sediment"),
+                                "CF.sd" = c(CF.1Lgrab.sd, CF.manta.trawl.sd, CF.fish.sd, CF.stormwater.sd, CF.wastewater.sd, CF.sediment.sd),
                                 "alpha" = c(alpha.marine, alpha.marine, alpha.fish, alpha.stormwater, alpha.wastewater, alpha.sediment),
-                                "alpha.se" = c(alpha.marine.se, alpha.marine.se, alpha.fish.se, alpha.stormwater.se, alpha.wastewater.se, alpha.sediment.se)) %>% 
+                                "alpha.sd" = c(alpha.marine.sd, alpha.marine.sd, alpha.fish.sd, alpha.stormwater.sd, alpha.wastewater.sd, alpha.sediment.sd),
+                                "alpha.n" = c (alpha.marine.n, alpha.marine.n, alpha.fish.n, alpha.stormwater.n, alpha.wastewater.n, alpha.sediment.n)) %>% 
+  mutate(alpha.se = alpha.sd / sqrt(alpha.n)) %>% 
   mutate(alpha.upper.68 = alpha + alpha.se,
          alpha.lower.68 = alpha - alpha.se,
          alpha.upper.95 = alpha + (1.96*alpha.se),
          alpha.lower.95 = alpha - (1.96*alpha.se),
          alpha.upper.99 = alpha + (3*alpha.se),
-         alpha.lower.99 = alpha - (3*alpha.se))
+         alpha.lower.99 = alpha - (3*alpha.se),
+         alpha.rsd = alpha.se / alpha) # value that's used in propagation of uncertainty
 
 alignment_factors
 ```
+
+
 
 ```{r}
 sfBay_new2 <- left_join(sfBay_new, alignment_factors, by = "matrix")
@@ -1251,33 +1382,53 @@ sfBay_new2 <- left_join(sfBay_new, alignment_factors, by = "matrix")
 #align data for different scenarios
 sensitivity <- sfBay_new2 %>%
   #derive correction factors
-  mutate(CF.upper.68 = CFfnx(a = alpha.upper.68, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
-         CF.upper.95 = CFfnx(a = alpha.upper.95, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
-         CF.upper.99 = CFfnx(a = alpha.upper.99, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
-         CF.lower.68 = CFfnx(a = alpha.lower.68, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
-         CF.lower.95 = CFfnx(a = alpha.lower.95, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
-         CF.lower.99 = CFfnx(a = alpha.lower.99, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set)) %>%
+  mutate(#CF.upper.68 = CFfnx(a = alpha.upper.68, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+         CF.upper.95 = CF + (1.96 * (CF.sd / sqrt(alpha.n))),
+         #CF.upper.99 = CFfnx(a = alpha.upper.99, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+         #CF.lower.68 = CFfnx(a = alpha.lower.68, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+         CF.lower.95 = CF - (1.96 * (CF.sd / sqrt(alpha.n))),
+         #CF.lower.99 = CFfnx(a = alpha.lower.99, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set)
+         )%>%
   #apply correction fcators
-  mutate(conc.upper.68 = case_when(sample.matrix.specific == "surface water" ~ CF.upper.68 * unaligned.particle.L.master,
-                                   sample.matrix == "sediment" ~ CF.upper.68 * particles.kg.blank.corrected.particle.corrected,
-                                   sample.matrix == "fish" ~ CF.upper.68 * particles.fish.blank.corrected.particle.corrected),
-         conc.upper.95 =  case_when(sample.matrix.specific == "surface water" ~ CF.upper.95 * unaligned.particle.L.master,
+  mutate(#conc.upper.68 = case_when(sample.matrix.specific == "surface water" ~ CF.upper.68 * unaligned.particle.L.master,
+          #                         sample.matrix == "sediment" ~ CF.upper.68 * particles.kg.blank.corrected.particle.corrected,
+           #                        sample.matrix == "fish" ~ CF.upper.68 * particles.fish.blank.corrected.particle.corrected),
+         conc.upper.95 =  case_when(sample.matrix == "water" ~ CF.upper.95 * unaligned.particle.L.master,
                                    sample.matrix == "sediment" ~ CF.upper.95 * particles.kg.blank.corrected.particle.corrected,
                                    sample.matrix == "fish" ~ CF.upper.95 * particles.fish.blank.corrected.particle.corrected),
-         conc.upper.99 =  case_when(sample.matrix.specific == "surface water" ~ CF.upper.99 * unaligned.particle.L.master,
-                                   sample.matrix == "sediment" ~ CF.upper.99 * particles.kg.blank.corrected.particle.corrected,
-                                   sample.matrix == "fish" ~ CF.upper.99 * particles.fish.blank.corrected.particle.corrected),
+         #conc.upper.99 =  case_when(sample.matrix.specific == "surface water" ~ CF.upper.99 * unaligned.particle.L.master,
+          #                         sample.matrix == "sediment" ~ CF.upper.99 * particles.kg.blank.corrected.particle.corrected,
+           #                        sample.matrix == "fish" ~ CF.upper.99 * particles.fish.blank.corrected.particle.corrected),
          ## lower intervals
-         conc.lower.68 = case_when(sample.matrix.specific == "surface water" ~ CF.lower.68 * unaligned.particle.L.master,
-                                   sample.matrix == "sediment" ~ CF.lower.68 * particles.kg.blank.corrected.particle.corrected,
-                                   sample.matrix == "fish" ~ CF.lower.68 * particles.fish.blank.corrected.particle.corrected),
-         conc.lower.95 =  case_when(sample.matrix.specific == "surface water" ~ CF.lower.95 * unaligned.particle.L.master,
+        # conc.lower.68 = case_when(sample.matrix.specific == "surface water" ~ CF.lower.68 * unaligned.particle.L.master,
+         #                          sample.matrix == "sediment" ~ CF.lower.68 * particles.kg.blank.corrected.particle.corrected,
+          #                         sample.matrix == "fish" ~ CF.lower.68 * particles.fish.blank.corrected.particle.corrected),
+         conc.lower.95 =  case_when(sample.matrix == "water" ~ CF.lower.95 * unaligned.particle.L.master,
                                    sample.matrix == "sediment" ~ CF.lower.95 * particles.kg.blank.corrected.particle.corrected,
-                                   sample.matrix == "fish" ~ CF.lower.95 * particles.fish.blank.corrected.particle.corrected),
-         conc.lower.99 =  case_when(sample.matrix.specific == "surface water" ~ CF.lower.99 * unaligned.particle.L.master,
-                                   sample.matrix == "sediment" ~ CF.lower.99 * particles.kg.blank.corrected.particle.corrected,
-                                   sample.matrix == "fish" ~ CF.lower.99 * particles.fish.blank.corrected.particle.corrected)
-  )
+                                   sample.matrix == "fish" ~ CF.lower.95 * particles.fish.blank.corrected.particle.corrected)#,
+         #conc.lower.99 =  case_when(sample.matrix.specific == "surface water" ~ CF.lower.99 * unaligned.particle.L.master,
+          #                         sample.matrix == "sediment" ~ CF.lower.99 * particles.kg.blank.corrected.particle.corrected,
+           #                        sample.matrix == "fish" ~ CF.lower.99 * particles.fish.blank.corrected.particle.corrected)
+  ) %>%
+  ####propagate uncertainty between alignment and plastic proportion correction####
+# first convert uncertainties into percentages
+#calcualted relative standard deviation for concentration factor
+  mutate(CF.rsd = CF.sd / CF) %>% 
+  #calculate alignment relative standard deviation (%) for concentraiont
+  mutate(proportion.rsd = proportion.sd / proportion) %>% 
+  ## next calculate uncertainty of proportion x alignment
+  mutate(combined.rsd = sqrt(CF.rsd ^ 2 + proportion.rsd ^ 2)) %>% 
+  #now calculate combined uncertainty
+  mutate(conc.combined.sd = Conc * combined.rsd) %>% 
+  #now calculate combined CI's
+  mutate(conc.combined.upper.95 = Conc + 1.96 * (conc.combined.sd / sqrt(alpha.n)),
+         conc.combined.lower.95 = Conc - 1.96 * (conc.combined.sd / sqrt(alpha.n))) %>% 
+ #  #recalculate alignment 95% CI's using actual SD
+ # mutate(conc.upper.95.alignment = Conc + 1.96 * (surface.water.CF.rsd * unaligned.particle.L.master),
+ #        conc.lower.95.alignment = Conc - 1.96 * (surface.water.CF.rsd * unaligned.particle.L.master))# %>% 
+ #  #calculate proportion 95% CI's
+    mutate(conc.upper.95.proportion = Conc + 1.96 * (proportion.rsd * Conc)  / sqrt(proportion.n),
+           conc.lower.95.proportion = Conc - 1.96 * (proportion.rsd * Conc) / sqrt(proportion.n))
 
 sensitivity
                                    
@@ -1304,6 +1455,68 @@ write.csv(CF_table,
 
 CF_table
 ```
+### Comparison of Sensitivities
+```{r}
+#prep rest
+wide.sensitivity.exceedances <- sensitivity %>% 
+  filter(Sampling.apparatus == "Manta Trawl") %>% 
+  dplyr::select(c(Conc,
+                  conc.combined.upper.95, conc.combined.lower.95, #combined
+                  conc.upper.95.proportion, conc.lower.95.proportion, #proportions only
+                  conc.lower.95, conc.upper.95, #alignment only
+                  sampleID)) %>% 
+  pivot_longer(-c(sampleID), names_to = "factor", values_to = "conc") %>% 
+  mutate(variable = case_when(
+    grepl("proportion", factor) ~ "proportion",
+    grepl("combined", factor) ~ "combined",
+    factor == "Conc" ~ "median",
+    factor == "conc.lower.95" ~ "alignment",
+    factor == "conc.upper.95" ~ "alignment")) %>% 
+  mutate(interval = case_when(
+    grepl("upper", factor) ~ "upper",
+    grepl("lower", factor) ~ "lower",
+    variable == "median" ~ "median"
+  )) %>% 
+  ## compare to thresholds
+    group_by(variable, interval) %>% 
+  summarize(n = n(),
+            belowThreshold1 = sum(conc < Threshold1_food),
+            aboveThreshold1 = sum(conc > Threshold1_food),
+            aboveThreshold2 = sum(conc > Threshold2_food),
+            aboveThreshold3 = sum(conc > Threshold3_food),
+            aboveThreshold4 = sum(conc > Threshold4_food)) %>% 
+  mutate(percent.above.threshold1 = aboveThreshold1 / n) %>% 
+  pivot_wider(c(variable, interval, percent.above.threshold1), names_from = interval, values_from = percent.above.threshold1)
+
+#get median
+median <- wide.sensitivity.exceedances$median[3]
+
+sensitivity.figure <- wide.sensitivity.exceedances %>% 
+  filter(variable != "median") %>% 
+  #arrange(desc(lower)) %>% 
+  mutate(name = factor(factor(variable), 
+                           levels = c("combined", "alignment", "proportion"))) %>% 
+#plot  
+ggplot() +
+  geom_errorbarh(aes(y = name, xmin = lower, xmax = upper),
+                 na.rm = TRUE) +
+  geom_vline(xintercept = median, linetype = "dashed", color = "red", size = 1.2) +
+  scale_x_continuous(name = "Percentage of Manta Trawl Samples Exceeding \n Food Dilution Threshold One (% +- 95% CI)",
+                       labels = scales::percent_format(scale = 100)) +
+  ylab("Influential variable") +
+  theme.type
+
+sensitivity.figure  
+```
+```{r}
+ggsave(plot = sensitivity.figure,
+       filename = "sensitivity.figure.jpeg",
+       path = "output/figures/", 
+       width = 7, height = 5, units = "in",
+       bg = "white",
+       dpi = 300)
+```
+
 
 #### Compare to thresholds
 ##### All surface water samples
@@ -1318,7 +1531,13 @@ sensitivity.analysis <- sensitivity %>%
   filter(source == "SFEI") %>% 
   filter(sample.matrix.specific == "surface water") %>% 
   #just select concentrations
-  dplyr::select(c(Conc, conc.upper.68, conc.upper.95, conc.upper.99, conc.lower.68, conc.lower.95, conc.lower.99)) %>% 
+  dplyr::select(c(Conc, 
+                  #conc.upper.68, 
+                  conc.upper.95, 
+                  #conc.upper.99, conc.lower.68,
+                  conc.lower.95#,
+                  #conc.lower.99
+                  )) %>% 
   #make long data
   pivot_longer(everything()) %>% 
   mutate(aboveThreshold = factor(case_when(
@@ -1354,7 +1573,8 @@ sfBayECDF_sensitivity <- sensitivity %>%
   filter(Sampling.apparatus == "Manta Trawl") %>% 
   filter(particle.L.master > 0) %>% 
   #just select concentrations
-  dplyr::select(c(Conc, conc.upper.68, conc.upper.95, conc.upper.99, conc.lower.68, conc.lower.95, conc.lower.99)) %>% 
+  dplyr::select(c(Conc, conc.combined.upper.95, conc.combined.lower.95)) %>% 
+  #dplyr::select(c(Conc, conc.upper.68, conc.upper.95, conc.upper.99, conc.lower.68, conc.lower.95, conc.lower.99)) %>% 
   #make long data
   pivot_longer(everything()) %>% 
   mutate(name = as.factor(name)) %>% 
@@ -1369,19 +1589,21 @@ sfBayECDF_sensitivity <- sensitivity %>%
   #color
   scale_color_manual(name = "Alignment Uncertanties",
                      values = c("Conc" = "#012740",
-                                "conc.lower.68" = "#05619c",
-                                "conc.upper.68" = "#05619c",
-                                "conc.lower.95" = "#8cd3ff",
-                                "conc.upper.95" = "#8cd3ff",
-                                "conc.lower.99" = "#c1e2f7",
-                                "conc.upper.99" = "#c1e2f7"),
+                               # "conc.lower.68" = "#05619c",
+                              #  "conc.upper.68" = "#05619c",
+                                "conc.combined.lower.95" = "#8cd3ff",
+                                "conc.combined.upper.95" = "#8cd3ff"#,
+                               # "conc.lower.99" = "#c1e2f7",
+                              #  "conc.upper.99" = "#c1e2f7"
+                              ),
                      labels = c("Mean", 
-                                "68th Percentile",
-                                "68th Percentile",
+                               # "68th Percentile",
+                                #"68th Percentile",
                                 "95th Percentile",
-                                "95th Percentile",
-                                "99.7th Percentile",
-                                "99.7th Percentile")) +
+                                "95th Percentile"#,
+                                #"99.7th Percentile",
+                                #"99.7th Percentile"
+                                )) +
   # ##Food Dilution thresholds #
    geom_vline(xintercept = Threshold1_food, linetype = 'dashed', color = "#fcc523", size = 1.5) +
    geom_text(label = "Threshold One", color = "#fcc523" , x = Threshold1_food, y = 0.10, size = 6)+
@@ -1460,7 +1682,13 @@ sensitivity.analysis.manta_inter <- sensitivity %>%
   filter(sample.matrix.specific == "surface water") %>% 
   filter(Sampling.apparatus == "Manta Trawl") %>%
   #just select concentrations
-  dplyr::select(c(Conc, conc.upper.68, conc.upper.95, conc.upper.99, conc.lower.68, conc.lower.95, conc.lower.99)) %>% 
+  dplyr::select(c(Conc,
+                  #conc.upper.68,
+                  conc.combined.upper.95,
+                  #conc.upper.99, conc.lower.68, 
+                  conc.combined.lower.95
+                  #, conc.lower.99
+                  )) %>% 
   #make long data
   pivot_longer(everything(),names_to = "alignment", values_to = "conc") %>% 
   #mutate(alignment = factor(alignment)) %>% 
@@ -1485,10 +1713,10 @@ sensitivity.analysis.manta_t2 <- t_2 %>% tibble::rownames_to_column("aboveThresh
 
 sensitivity.analysis.manta <- sensitivity.analysis.manta_t2 %>% 
   filter(!aboveThreshold == "n") %>% 
-  mutate_at(c(2:8), as.numeric) %>% 
+  mutate_at(c(2:4), as.numeric) %>% 
   mutate(Conc.percent = Conc / manta.count[1,],
-         conc.lower.95.percent = conc.lower.95 / manta.count[1,],
-         conc.upper.95.percent = conc.upper.95 / manta.count[1,])
+         conc.lower.95.percent = conc.combined.lower.95 / manta.count[1,],
+         conc.upper.95.percent = conc.combined.upper.95 / manta.count[1,])
 
 sensitivity.analysis.manta
 ```
@@ -1516,7 +1744,11 @@ sensitivity.analysis.manta.oxidative_inter <- sensitivity %>%
   filter(sample.matrix.specific == "surface water") %>% 
   filter(Sampling.apparatus == "Manta Trawl") %>%
   #just select concentrations
-  dplyr::select(c(Conc, conc.upper.68, conc.upper.95, conc.upper.99, conc.lower.68, conc.lower.95, conc.lower.99)) %>% 
+  dplyr::select(c(Conc,# conc.upper.68, 
+                  conc.combined.upper.95, 
+                  #conc.upper.99, conc.lower.68, 
+                  conc.combined.lower.95#, conc.lower.99
+                  )) %>% 
   #make long data
   pivot_longer(everything(),names_to = "alignment", values_to = "conc") %>% 
   #mutate(alignment = factor(alignment)) %>% 
@@ -1541,10 +1773,10 @@ sensitivity.analysis.manta.oxidative_t2 <- t_2 %>% tibble::rownames_to_column("a
 
 sensitivity.analysis.manta.oxidative <- sensitivity.analysis.manta.oxidative_t2 %>% 
   filter(!aboveThreshold == "n") %>% 
-  mutate_at(c(2:8), as.numeric) %>% 
+  mutate_at(c(2:4), as.numeric) %>% 
   mutate(Conc.percent = Conc / manta.count[1,],
-         conc.lower.95.percent = conc.lower.95 / manta.count[1,],
-         conc.upper.95.percent = conc.upper.95 / manta.count[1,])
+         conc.lower.95.percent = conc.combined.lower.95 / manta.count[1,],
+         conc.upper.95.percent = conc.combined.upper.95 / manta.count[1,])
 
 sensitivity.analysis.manta.oxidative
 ```
@@ -1643,9 +1875,9 @@ sensitivity.analysis.location_inter <- sensitivity %>%
   filter(Sampling.apparatus == "Manta Trawl") %>%
   #just select concentrations
   dplyr::select(c(Conc, #conc.upper.68,
-                  conc.upper.95, 
+                  conc.combined.upper.95, 
                   #conc.upper.99, conc.lower.68, 
-                  conc.lower.95, 
+                  conc.combined.lower.95, 
                   #conc.lower.99,
                   locationNew)) %>% 
   #make long data
@@ -1712,9 +1944,9 @@ sensitivity.analysis.location_inter <- sensitivity %>%
   filter(Sampling.apparatus == "Manta Trawl") %>%
   #just select concentrations
   dplyr::select(c(Conc, #conc.upper.68,
-                  conc.upper.95, 
+                  conc.combined.upper.95, 
                   #conc.upper.99, conc.lower.68, 
-                  conc.lower.95, 
+                  conc.combined.lower.95, 
                   #conc.lower.99,
                   locationNew)) %>% 
   #make long data
