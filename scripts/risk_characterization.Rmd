@@ -875,7 +875,196 @@ ggsave(plot = proportions_polymers_arranged,
        bg = "white",
        dpi = 300)
 ```
-#### Morphology differences
+## Morphology differences
+### 9 Samples with Fibers
+#### Data cleanup
+Chelsea sent a file that contains the 9 manta trawl samples with fibers. The goal here is to determine what percentage of particles were fibers in those manta trawl samples.
+```{r}
+manta_with_fibers <-  readxl::read_excel("data/MantaWFibers.xlsx") %>% 
+  janitor::clean_names() %>% 
+  #SampleId is not present, so need to make a new one
+  #sample CB8 was split into two, so collapse into one
+  mutate(station_code = case_when(station_code == "CB8 2/2" ~ "CB8",
+                                  TRUE ~ as.character(station_code))) %>% 
+  mutate(sample_id = paste0(station_code, collection_date)) %>% 
+  mutate(SampleType = "Surface Water (Manta Trawl; Fibers)")
+
+#convert strings to lowercase
+manta_with_fibers$category <- str_to_lower(manta_with_fibers$category)
+
+# remove tailing blank space
+ manta_with_fibers$category <- str_trim(manta_with_fibers$category, "right")
+
+#convert to factor
+manta_with_fibers <- manta_with_fibers %>% 
+  mutate_if(is.character, as.factor)
+
+#
+levels(manta_with_fibers$category)
+
+#clean levels
+manta_with_fibers <- manta_with_fibers %>% 
+  filter(category %in% c("fiber", "film/frag", "fragment", "fiber bundle", 
+                         "film?", "fragment", "pellet", "film", "foam", "sphere",
+                         "pellet")) %>% 
+  #fix different levels
+  mutate(category = factor(case_when(
+    category == "film/frag" ~ "fragment",
+    category == "film?" ~ "film",
+    category == "pellet" ~ "sphere",
+    TRUE ~ as.character(category)
+  )))
+
+#ensure sensible levels
+levels(manta_with_fibers$category)
+skim(manta_with_fibers)
+```
+#### Summarize Shape Percentages OVERALL
+```{r}
+## get total counts of particles per sample
+totals_all <- manta_with_fibers %>% 
+  drop_na(category) %>% 
+  group_by(SampleType) %>% 
+  summarize(total = n())
+
+#determine which samples have fibers
+shape_counts_all <- manta_with_fibers %>% 
+  group_by(category, SampleType) %>% 
+  summarize(n = n()) %>% 
+  left_join(totals_all, by = "SampleType") %>% 
+  mutate(proportion = n / total)
+
+#plot per sample
+total_manta_shapes <- shape_counts_all %>% 
+  ggplot(aes(x = proportion, y = SampleType, fill = category)) + 
+  geom_col(position = "fill") +
+  scale_x_continuous(name = "Relative Fiber Percentages of % of Sub-Sampled Particles",
+                     labels = scales::percent_format(scale = 100)) +
+  scale_fill_d3(name = "Particle Category") +
+  theme.type +
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        axis.title.y = element_blank(),
+        legend.text = element_text(size = 14))
+
+total_manta_shapes
+```
+
+#### Summarize Shape Percentages by Sample
+```{r}
+## get total counts of particles per sample
+totals <- manta_with_fibers %>% 
+  drop_na(category) %>% 
+  group_by(sample_id) %>% 
+  summarize(total = n())
+
+#determine which samples have fibers
+shape_counts <- manta_with_fibers %>% 
+  group_by(station_code, sample_id, category) %>% 
+  summarize(n = n()) %>% 
+  left_join(totals, by = "sample_id") %>% 
+  mutate(proportion = n / total)
+
+shape_counts
+
+#plot per sample
+true_shape_graph_sample <- shape_counts %>% 
+  filter(category == "fiber") %>% 
+  ggplot(aes(x = proportion, y = sample_id)) + 
+  geom_col() + #position = "fill") +
+  scale_x_continuous(name = "Relative Fiber Percentages of % of Sub-Sampled Particles",
+                     labels = scales::percent_format(scale = 100)) +
+  scale_fill_d3(name = "Particle Category") +
+  theme.type +
+  theme(legend.position = "bottom",
+        legend.title = element_blank(),
+        axis.title.y = element_blank(),
+        legend.text = element_text(size = 14))
+
+true_shape_graph_sample
+```
+#### Averages
+##### Barplot
+```{r}
+shape.ave <- shape_counts %>% 
+ # filter(category == "fiber") %>% 
+  group_by(category) %>% 
+  summarise(ave.prop = mean(proportion), sd.prop = sd(proportion), n.prop = 10) %>% 
+  mutate(category = fct_reorder(factor(category), desc(ave.prop))) %>% 
+  mutate(SampleType = "Surface Water (Manta Trawl; Fibers)")
+
+shape.ave 
+```
+
+```{r}
+#plot
+shape.bar <- shape.ave %>% 
+  ggplot(aes(x = ave.prop, y = category, fill = category)) +
+   geom_col() + #position = "fill") +
+  geom_errorbarh(aes(xmin = ave.prop - sd.prop/sqrt(n.prop), xmax = ave.prop + sd.prop/sqrt(n.prop))) +
+  scale_x_continuous(name = "Relative Shape Proportions of Sub-Sampled Particles \n in Manta Trawl with Counted Fibers",
+                     labels = scales::percent_format(scale = 100)) +
+  scale_fill_aaas(name = "Particle Category") +
+  theme.type +
+  theme(legend.position = "none",
+        legend.title = element_blank(),
+        axis.title.y = element_blank(),
+        legend.text = element_text(size = 14),
+        axis.title.x = element_text(size = 14),
+        axis.text.y = element_text(size = 14))
+
+shape.bar
+```
+
+#####Boxplot
+```{r}
+shape.box <- shape_counts %>% 
+  left_join(shape.ave, by = "category") %>% 
+  mutate(category = fct_reorder(factor(category), desc(ave.prop))) %>% 
+  ggplot(aes(x = proportion, y = category, fill = category)) +
+  geom_boxplot(alpha = 0.8) +
+  scale_x_continuous(name = "Relative Shape Proportions of Sub-Sampled Particles \n in Manta Trawl with Counted Fibers",
+                     labels = scales::percent_format(scale = 100)) +
+  scale_fill_aaas(name = "Particle Category") +
+  theme.type +
+  theme(legend.position = "none",
+        legend.title = element_blank(),
+        axis.title.y = element_blank(),
+        legend.text = element_text(size = 16),
+        axis.title.x = element_text(size = 14),
+        axis.text.y = element_text(size = 14))
+
+shape.box
+```
+```{r}
+manta_with_fibers_plots <- ggarrange(shape.box,shape.bar,
+          labels = c("A", "B"),
+          nrow = 2,
+          common.legend = FALSE)
+
+ggsave(plot = manta_with_fibers_plots,
+       filename = "manta_with_fibers_plots.jpg",
+       path = "output/figures/", 
+       width = 8, height = 10, units = "in",
+       bg = "white",
+       dpi = 300)
+
+```
+
+
+##### Derive Fiber Correction Factor
+```{r}
+fiber.correction.factor <- shape_counts %>% 
+  filter(category == "fiber") %>%
+  group_by() %>% 
+  summarise(ave.fiber = mean(proportion), sd.fiber = sd(proportion), n.fiber = n())
+
+fiber.correction.factor
+```
+
+
+### Using CEDEN Data 
+NOTE: This dataset contains 11 samples with fibers, while the rest do not. Alice's blank-coprrected dataset EXCLUDES all fibers for manta trawl, so these data are NOT representative.
 ```{r}
 particle.data.clean.plastic <- particle.data.clean %>% 
   rename(Polymer = PlasticType) %>% 
@@ -924,27 +1113,65 @@ skim(particle.data.clean.plastic)
 ```
 
 
-###### Summarize Morphologies
+#### Summarize Morphologies
+##### Across ALL Samples
 ```{r}
 # get numbers for each sample.type
 total_samples <- particle.data.clean.plastic %>% 
+  filter(!grepl("blank", SampleID, ignore.case = TRUE)) %>% 
+  #remove manta trawl because it doesn't reflect Zhu et al particle counts
+  filter(Sample.Type != "Surface (Manta Trawl)") %>% 
   group_by(Sample.Type) %>% 
   summarize(total = n())
 
 #total_samples 
 # calculate proportions of shapes for each matrix
 simple_shape_summary <- particle.data.clean.plastic %>% 
+  filter(!grepl("blank", SampleID, ignore.case = TRUE)) %>% 
+  filter(Sample.Type != "Surface (Manta Trawl)") %>% 
   group_by(Sample.Type, MorphologicalCategory) %>% 
   summarize(shape_count = n()) %>% 
   left_join(total_samples, by = "Sample.Type") %>% 
-  mutate(proportion = shape_count / total)
+  mutate(proportion = shape_count / total) %>% 
+  group_by(Sample.Type, MorphologicalCategory) %>% 
+  summarize(ave.prop = mean(proportion), sd.prop = sd(proportion), n.prop = n())
 
 simple_shape_summary
 ```
-
+Manta trawl count data in Zhu et al had fibers removed. Need to filter those out for manta before reporting.
 ```{r}
-specific_proportions_shapes_graph <- simple_shape_summary %>% 
-  ggplot(aes(x = proportion, y = Sample.Type, fill = MorphologicalCategory)) +
+#remove manta and fibers and count separately then re-join to other matrices
+total.particle.manta <- particle.data.clean.plastic %>% 
+  filter(!grepl("blank", SampleID, ignore.case = TRUE)) %>% 
+  filter(Sample.Type == "Surface (Manta Trawl)") %>% 
+  filter(!MorphologicalCategory %in% c("Fiber", "Fiber Bundle")) %>% 
+   group_by(Sample.Type) %>% 
+  summarize(total.count = n())
+
+# calculate proportions of shapes for each matrix
+shape_summary_manta_noFibers <- particle.data.clean.plastic %>% 
+  filter(!grepl("blank", SampleID, ignore.case = TRUE)) %>% 
+  filter(Sample.Type == "Surface (Manta Trawl)") %>% 
+  filter(!MorphologicalCategory %in% c("Fiber", "Fiber Bundle")) %>% 
+  group_by(MorphologicalCategory, Sample.Type) %>% 
+  summarize(shape_count = n()) %>% 
+  left_join(total.particle.manta, by = "Sample.Type") %>% 
+  mutate(proportion = shape_count / total.count) %>% 
+  group_by(Sample.Type, MorphologicalCategory) %>% 
+  summarize(ave.prop = mean(proportion), sd.prop = sd(proportion), n.prop = n())
+
+shape_summary_manta_noFibers
+
+
+#join manta without fibers and other data
+shape_summary <- rbind(simple_shape_summary, shape_summary_manta_noFibers)
+shape_summary
+```
+
+##### Proportions Ploit
+```{r}
+specific_proportions_shapes_graph <- shape_summary %>% 
+  ggplot(aes(x = ave.prop, y = Sample.Type, fill = MorphologicalCategory)) +
   geom_col(position = "fill") +
   #geom_errorbarh(aes(xmax = ave.prop + sd.prop, xmin = ave.prop - sd.prop),
    #              height = 0.2,
@@ -969,10 +1196,110 @@ ggsave(plot = specific_proportions_shapes_graph,
        bg = "white",
        dpi = 300)
 ```
+##### Variability
+```{r}
+# get sample count n
+n_samples <- particle.data.clean.plastic %>% 
+  filter(general == "plastic") %>% 
+  filter(!grepl("blank", SampleID, ignore.case = TRUE)) %>% 
+  filter(Sample.Type != "Surface (Manta Trawl)") %>% 
+  group_by(Sample.Type) %>% 
+  summarize(total = n_unique(SampleID))
 
-### Apply correction factors
+#### Do for all except manta #####
+# get numbers for each sample.type
+total_samples <- particle.data.clean.plastic %>% 
+  filter(general == "plastic") %>% 
+  filter(!grepl("blank", SampleID, ignore.case = TRUE)) %>% 
+  filter(Sample.Type != "Surface (Manta Trawl)") %>% 
+  group_by(SampleID) %>% 
+  summarize(total = n())
+
+#total_samples 
+# calculate proportions of shapes for each matrix
+simple_shape_summary <- particle.data.clean.plastic %>% 
+  filter(general == "plastic") %>% 
+   filter(!grepl("blank", SampleID, ignore.case = TRUE)) %>% 
+  filter(Sample.Type != "Surface (Manta Trawl)") %>% 
+  group_by(Sample.Type, MorphologicalCategory, SampleID) %>% 
+  summarize(shape_count = n()) %>% 
+  left_join(total_samples, by = "SampleID") %>% 
+  mutate(proportion = shape_count / total) %>% 
+  group_by(Sample.Type, MorphologicalCategory) %>% 
+  summarize(ave.prop = mean(proportion), sd.prop = sd(proportion), n.prop = n()) 
+
+simple_shape_summary
+
+#### Do for only manta #####
+# get numbers for each sample.type
+manta.total.samples <- particle.data.clean.plastic %>% 
+  filter(general == "plastic") %>% 
+  filter(MorphologicalCategory != "Fiber") %>% 
+  filter(!grepl("blank", SampleID, ignore.case = TRUE)) %>% 
+  filter(Sample.Type == "Surface (Manta Trawl)") %>% 
+  group_by(SampleID) %>% 
+  summarize(total = n())
+
+#total_samples 
+# calculate proportions of shapes for each matrix
+manta_shape_summary <- particle.data.clean.plastic %>% 
+  filter(general == "plastic") %>% 
+  filter(MorphologicalCategory != "Fiber") %>% 
+   filter(!grepl("blank", SampleID, ignore.case = TRUE)) %>% 
+  filter(Sample.Type == "Surface (Manta Trawl)") %>% 
+  group_by(Sample.Type, MorphologicalCategory, SampleID) %>% 
+  summarize(shape_count = n()) %>% 
+  left_join(manta.total.samples, by = "SampleID") %>% 
+  mutate(proportion = shape_count / total) %>% 
+  group_by(Sample.Type, MorphologicalCategory) %>% 
+  summarize(ave.prop = mean(proportion), sd.prop = sd(proportion), n.prop = n()) 
+manta_shape_summary
+
+average.shapes <- rbind(simple_shape_summary, manta_shape_summary)
+average.shapes
+```
+
+
+##### Export data
+```{r}
+### prep manta with fibers for binding
+shape.ave_final <- shape.ave %>% 
+  rename(MorphologicalCategory = category) %>% 
+  rename(Sample.Type = SampleType) %>% 
+  dplyr::select(c(Sample.Type, MorphologicalCategory, ave.prop, sd.prop, n.prop))
+
+shape_summary_final <- average.shapes %>%
+  mutate(Sample.Type = case_when(Sample.Type == "Surface (Manta Trawl)" ~ "Surface (Manta Trawl; no fibers)",
+                                 TRUE ~ as.character(Sample.Type))) %>% 
+  # join with fibers dataset
+  rbind(shape.ave_final) %>% 
+  mutate(se.prop = ave.prop / sqrt(sd.prop))
+
+#convert all to lwoer case
+shape_summary_final$MorphologicalCategory <- str_to_lower(shape_summary_final$MorphologicalCategory)
+
+#easy formatting
+shape_summary_final_pretty <- shape_summary_final %>% 
+  mutate(prop = paste0(round(ave.prop * 100,0),
+                      "% ± ",
+                      round(sd.prop * 100,0),
+                      "% (",
+                      n.prop,
+                      ")")) %>% 
+  dplyr::select(c(Sample.Type, MorphologicalCategory, prop)) %>% 
+#join with fiber manta trawl+
+  pivot_wider(names_from = c(Sample.Type), values_from = prop)
+
+shape_summary_final_pretty
+  
+write.csv(shape_summary_final_pretty,
+          "output/data/shape_summary_final_pretty.csv")
+```
+
+
+#### Apply correction factors
 Since ANOVA demonstrated no differences in location for manta, use overall percentages to correct data
-#### Generic correction factor for manta trawl
+##### Generic correction factor for manta trawl
 ```{r}
 manta.correction <- manta.sample.plastic.percentages %>% 
   group_by() %>% 
@@ -984,7 +1311,7 @@ manta.correction <- manta.sample.plastic.percentages %>%
 manta.correction
 ```
 
-#### Site-specific for other matrices
+##### Site-specific for other matrices
 ```{r}
 ##recode missing levels into generic (NA)
 sfBay2_recode <- sfBay2 %>% 
@@ -1455,6 +1782,17 @@ write.csv(CF_table,
 
 CF_table
 ```
+### RSD
+```{r}
+sensitivity %>% 
+  filter(Sampling.apparatus == "Manta Trawl") %>% 
+  dplyr::select(c(CF.rsd,
+                  proportion.rsd,
+                  combined.rsd,
+                  sampleID)) %>% 
+  summarize(CF.rsd = mean(CF.rsd), proportion.rsd = mean(proportion.rsd), combnined.rsd = mean(combined.rsd))
+```
+
 ### Comparison of Sensitivities
 ```{r}
 #prep rest
@@ -2389,6 +2727,58 @@ sfBay_aligned %>%
   geom_boxplot() +
   #scale_y_log10()+
   theme.type 
+
+```
+# Map
+## Libraries
+```{r}
+# code as we would normally do in R script
+library(sf)
+library(readr)
+library(viridis)
+library(USAboundaries)
+library(rnaturalearth)
+library(GSODR)
+library(cowplot)
+library(mapview)      # interactive maps!
+mapviewOptions(fgb = FALSE)
+```
+## Basemap
+```{r}
+# get USA states, filter out Puerto Rico, Alaska, and Hawaii for now
+us <- USAboundaries::us_boundaries(type = "state", resolution = "low") %>% 
+  filter(!state_abbr %in% c("PR", "AK", "HI"))
+
+# get CA boundary with high definition
+ca <- USAboundaries::us_states(resolution = "high", states = "CA")
+
+# make a box around CA (a grid with an n=1) for inset
+ca_box <- st_make_grid(ca, n = 1)
+
+# get crs
+st_crs(ca_box)$epsg
+
+# get CA county boundary
+ca_co <- USAboundaries::us_counties(resolution = "high", states = "CA")
+
+# mapview(ca_box) # quick check that it worked
+# mapview of two obj
+# mapview(ca_box) + mapview(ca)
+
+# make sure we have all the pieces with a quick test plot
+# check they all have same crs:
+library(purrr)
+map(list(us, ca, ca_co), ~st_crs(.x)$epsg)
+
+# make a map
+#plot(us$geometry) # every time this will make a fresh map
+plot(ca$geometry, add = TRUE, col = "gray50", border = "maroon")
+plot(ca_co$geometry, add = TRUE, border = "pink", col = NA)
+plot(ca_box, add = TRUE, border = "red3", col = NA, lwd = 2)
+```
+
+## Data Prep
+```{r}
 
 ```
 
