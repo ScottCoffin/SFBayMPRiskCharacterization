@@ -1342,26 +1342,7 @@ manta.correction <- manta.sample.plastic.percentages %>%
 manta.correction
 ```
 
-#### Fit Distributions
-```{r}
-plastic.proportions.manta <- manta.sample.plastic.percentages$freq / 1000
 
-#determine possible candidates with descdist
-descdist(plastic.proportions.manta, discrete = FALSE)
-```
-
-```{r}
-plastic.proprotions.fit.beta <- fitdist(plastic.proportions.manta, "beta")
-plot(plastic.proprotions.fit.beta)
-summary(plastic.proprotions.fit.beta)
-```
-
-```{r}
-
-fit <- fitDist(plastic.proportions.manta, k = 2, type = "realplus", trace = TRUE, try.gamlss = TRUE)
-
-summary(fit)
-```
 
 
 
@@ -2714,27 +2695,34 @@ library(fitdistrplus)
 
 #extract only proportions data
 shape_fiber <- shape_counts %>% 
+ # filter(proportion > 0.5) %>% 
   filter(category == "fiber") %>% 
-  mutate(fiber.adjustment = 1/ (1 - proportion))
+  mutate(fiber.adjustment = 1 / (1 - proportion))
 
 fiber.proportions <- shape_fiber$proportion
-#fiber.proportions <- shape_fiber$fiber.adjustment
+fiber.adjustment <- log10(shape_fiber$fiber.adjustment) #log10 transformation to improve modelling
 
 #determine possible candidates with descdist
 descdist(fiber.proportions, discrete = FALSE)
+
+descdist(fiber.adjustment)
 ```
 
 ```{r}
-fiber.proprotions.fit.beta <- fitdist(fiber.proportions, "beta")
-plot(fiber.proprotions.fit.beta)
-summary(fiber.proprotions.fit.beta)
+fiber.proportions.fit.beta <- fitdist(fiber.proportions, "beta")
+plot(fiber.proportions.fit.beta)
+summary(fiber.proportions.fit.beta)
+summary(fiber.proportions)
+
+fiber.adjustment.fit.norm <- fitdist(fiber.adjustment, "norm")
+summary(fiber.adjustment.fit.norm)
 ```
 
 ### Gamlss package
 The gamlss package for R offers the ability to try many different distributions and select the "best" according to the GAIC (the generalized Akaike information criterion). The main function is fitDist. An important option in this function is the type of the distributions that are tried. For example, setting type = "realline" will try all implemented distributions defined on the whole real line whereas type = "realsplus" will only try distributions defined on the real positive line. Another important option is the parameter k, which is the penalty for the GAIC. In the example below, I set the parameter k=2 which means that the "best" distribution is selected according to the classic AIC. You can set k to anything you like, such as log(n) for the BIC.
 
 ```{r}
-fit <- fitDist(fiber.proportions, k = 2, type = "realAll", trace = TRUE, try.gamlss = TRUE)
+fit <- fitDist(fiber.adjustment, k = 2, type = "realplus", trace = TRUE)
 
 summary(fit)
 ```
@@ -2746,8 +2734,11 @@ n = 10000
 fiber.func <- function(F){
   success <- FALSE
   while(!success){
-  F = rSEP2(n = 1, mu = fit$mu.coefficients[1], sigma = - fit$sigma.coefficients[1], nu = fit$nu.coefficients[1], 
-            tau = - fit$tau.coefficients[1]) #PDF
+    F = rnorm(n = 1, mean = fiber.adjustment.fit.norm$estimate[1], sd = fiber.adjustment.fit.norm$estimate[2])
+    #F = rWEI2(n = 1, mu = fit$mu.coefficients[1], sigma = fit$sigma.coefficients[1])
+    #F = rbeta(n = 1, shape1 = fiber.proportions.fit.beta$estimate[1], fiber.proportions.fit.beta$estimate[2])
+   # F = rSEP2(n = 1, mu = fit$mu.coefficients[1], sigma = fit$sigma.coefficients[1], nu = fit$nu.coefficients[1], 
+    #        tau =  fit$tau.coefficients[1]) #PDF
     success <- F > 0} #lower limit of 0
     return(F)
   }
@@ -2759,11 +2750,65 @@ for(i in 1:n){
   fiber <- rbind(fiber, X)
 }
 
-colnames(fiber) <- c("fiber.proportion")
-  
-summary(fiber$fiber.proportion)
-fiber %>% ggplot(aes(x = fiber.proportion)) + geom_histogram() + scale_x_log10()
+colnames(fiber) <- c("logfiber.adjustment")
 
+#re-transform
+fiber$fiber.adjustment <- 10 ^ fiber$logfiber.adjustment
+#fiber$fiber.adjustment <- 1/(1 - fiber$fiber.proportion) #calculate adjustement based on percentage of fibers
+  
+summary(fiber$fiber.adjustment)
+fiber %>% ggplot(aes(x = fiber.adjustment)) + geom_histogram() + scale_x_log10()
+
+```
+## Plastic Percentage
+
+#### Fit Distributions
+```{r}
+plastic.proportions.manta <- manta.sample.plastic.percentages$freq / 1000
+
+#determine possible candidates with descdist
+descdist(plastic.proportions.manta, discrete = FALSE)
+```
+
+```{r}
+plastic.proprotions.fit.beta <- fitdist(plastic.proportions.manta, "beta")
+plot(plastic.proprotions.fit.beta)
+summary(plastic.proprotions.fit.beta)
+```
+
+```{r}
+fitPlastic <- fitDist(plastic.proportions.manta, k = 2, type = "realplus", trace = TRUE, try.gamlss = TRUE)
+
+summary(fitPlastic)
+```
+```{r}
+plastic.func <- function(F){
+  success <- FALSE
+  while(!success){
+    P = rbeta(n = 1,
+              shape1 = plastic.proprotions.fit.beta$estimate[1],
+              shape2 = plastic.proprotions.fit.beta$estimate[2])
+    success <- P > 0} #lower limit of 0
+    return(P)
+  }
+  
+plastic <- data.frame(plastic.coefficent = numeric(0));
+
+for(i in 1:n){
+  X <- plastic.func()
+  plastic <- rbind(plastic, X)
+}
+
+colnames(plastic) <- c("plastic.proportion")
+  
+plastic$plastic.proportion <- plastic$plastic.proportion * 10 # correct from transoformation above
+
+distributions <- cbind(plastic$plastic.proportion, fiber$fiber.proportion)
+
+colnames(distributions) <- c("plastic.proportion", "fiber.proportion")
+
+summary(plastic$plastic.proportion)
+plastic %>% ggplot(aes(x = plastic.proportion)) + geom_histogram() + scale_x_log10()
 ```
 
 
