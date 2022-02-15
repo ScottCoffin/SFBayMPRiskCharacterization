@@ -1,6 +1,6 @@
 "","aboveThreshold","Conc","conc.combined.lower.95","conc.combined.upper.95","Conc.percent","conc.lower.95.percent","conc.upper.95.percent"
-"1","belowThreshold1",65,65,65,1,1,1
-"2","aboveThreshold1",0,0,0,0,0,0
+"1","belowThreshold1",64,65,64,0.984615384615385,1,0.984615384615385
+"2","aboveThreshold1",1,0,1,0.0153846153846154,0,0.0153846153846154
 "3","aboveThreshold2",0,0,0,0,0,0
 "4","aboveThreshold3",0,0,0,0,0,0
 "5","aboveThreshold4",0,0,0,0,0,0

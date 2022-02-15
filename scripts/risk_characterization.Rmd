@@ -41,6 +41,9 @@ library(stringr)
 library(skimr)
 library(ggpmisc)
 library(collapsibleTree)
+library(gamlss)
+library(gamlss.dist)
+library(gamlss.add)
 ```
 
 # Hazard Concentration and Alignment Parameters
@@ -468,7 +471,8 @@ manta.polymer.percentages
 #### ANOVA to determine site-specific differences
 
 ```{r}
-manta.data.annotated <- manta.data %>% 
+manta.data.annotated <- manta.data %>%
+    filter(!grepl("blank", SampleID, ignore.case = TRUE)) %>% #remove blanks
    # annotate polymer types
    mutate(general = case_when(
     grepl("Unknown", PlasticType, ignore.case = TRUE) ~ "unknown",
@@ -501,6 +505,7 @@ manta.sample.plastic.percentages <- manta.data.annotated %>%
 
 #summarize for barploy
 manta.site.plastic.percentages <- manta.sample.plastic.percentages %>% 
+  filter(total.particles > 1) %>% 
   #get mean, SD, and N for plastic percentages within each location
   group_by(site) %>% 
   summarize(ave.proportion = mean(freq), sd.proportion = sd(freq), n.samples = n()) %>% 
@@ -555,7 +560,7 @@ manta.general.percentages
 ```
 
 
-### Derive correction factors
+### PLASTIC CORRECTION
 ```{r}
 #long-wise
 long_polymer <- site_polymer_percentages %>% 
@@ -875,7 +880,7 @@ ggsave(plot = proportions_polymers_arranged,
        bg = "white",
        dpi = 300)
 ```
-## Morphology differences
+## FIBER CORRECTION
 ### 9 Samples with Fibers
 #### Data cleanup
 Chelsea sent a file that contains the 9 manta trawl samples with fibers. The goal here is to determine what percentage of particles were fibers in those manta trawl samples.
@@ -983,6 +988,9 @@ true_shape_graph_sample <- shape_counts %>%
 
 true_shape_graph_sample
 ```
+
+
+
 #### Averages
 ##### Barplot
 ```{r}
@@ -1060,6 +1068,29 @@ fiber.correction.factor <- shape_counts %>%
   summarise(ave.fiber = mean(proportion), sd.fiber = sd(proportion), n.fiber = n())
 
 fiber.correction.factor
+```
+##### Apply Fiber Correction Factor
+```{r}
+# to correct for missing fibers in manta trawls, we take the inverse of 1 - proportion of fibers. For example, if 78% of fibers are removed from manta, the correction factor would be 4.54
+fiber.correction = 1/(1 - as.numeric(fiber.correction.factor$ave.fiber[1]))
+fiber.correction.sd = 1/(1 - as.numeric(fiber.correction.factor$sd.fiber[1]))
+fiber.correction.n = as.numeric(fiber.correction.factor$n.fiber[1])
+
+#sfbay2 <- 
+sfBay2 <- sfBay2 %>% 
+ #annotate fiber correction factor to dataset
+  mutate(fiber.correction.factor = case_when(
+    Sampling.apparatus == "Manta Trawl" ~ fiber.correction,
+    TRUE ~ as.numeric(1))) %>% 
+  mutate(fiber.correction.factor.sd = case_when(
+    Sampling.apparatus == "Manta Trawl" ~ fiber.correction.sd)) %>% 
+  mutate(fiber.correction.factor.n = case_when(
+    Sampling.apparatus == "Manta Trawl" ~ fiber.correction.n)) %>% 
+  ## multiply 
+  mutate(particles.L.blank.corrected.fiber.corrected = 
+           particles.L.blank.corrected * fiber.correction.factor)
+  ## Uncertainty analysis ##
+sfBay2$particles.L.blank.corrected.fiber.corrected
 ```
 
 
@@ -1297,7 +1328,7 @@ write.csv(shape_summary_final_pretty,
 ```
 
 
-#### Apply correction factors
+### PLASTIC CORRECTION FACTOR
 Since ANOVA demonstrated no differences in location for manta, use overall percentages to correct data
 ##### Generic correction factor for manta trawl
 ```{r}
@@ -1310,6 +1341,29 @@ manta.correction <- manta.sample.plastic.percentages %>%
 
 manta.correction
 ```
+
+#### Fit Distributions
+```{r}
+plastic.proportions.manta <- manta.sample.plastic.percentages$freq / 1000
+
+#determine possible candidates with descdist
+descdist(plastic.proportions.manta, discrete = FALSE)
+```
+
+```{r}
+plastic.proprotions.fit.beta <- fitdist(plastic.proportions.manta, "beta")
+plot(plastic.proprotions.fit.beta)
+summary(plastic.proprotions.fit.beta)
+```
+
+```{r}
+
+fit <- fitDist(plastic.proportions.manta, k = 2, type = "realplus", trace = TRUE, try.gamlss = TRUE)
+
+summary(fit)
+```
+
+
 
 ##### Site-specific for other matrices
 ```{r}
@@ -1379,7 +1433,9 @@ sfBay3 <- sfBay2_joined %>%
          # CI's
          particles.L.blank.corrected.particle.corrected.upper95 = particles.L.blank.corrected * proportion.upper95,
          particles.L.blank.corrected.particle.corrected.lower95 = particles.L.blank.corrected * proportion.lower95,
-         particles.L.blank.corrected.particle.corrected.sd = particles.L.blank.corrected * proportion.sd)
+         particles.L.blank.corrected.particle.corrected.sd = particles.L.blank.corrected * proportion.sd) %>% 
+#### Include fiber correction
+  mutate(particles.L.blank.corrected.particle.corrected.fiber.corrected = particles.L.blank.corrected.particle.corrected * fiber.correction)
 
 sfBay3
 ```
@@ -1426,7 +1482,7 @@ sfBay_aligned <- sfBay3 %>%
    
 #   )
 ) %>% 
-  mutate(particle.L.master = particles.L.blank.corrected.particle.corrected * CF,
+  mutate(particle.L.master = particles.L.blank.corrected.particle.corrected.fiber.corrected * CF,
          particle.fish.master = particles.fish.blank.corrected.particle.corrected * CF,
          particles.kg.master = particles.kg.blank.corrected.particle.corrected * CF) %>% 
   rename(unaligned.particle.L.master = particles.L.blank.corrected.particle.corrected) %>% 
@@ -1660,7 +1716,7 @@ exceedance <- dfSFEI_exceedance  %>%
 
 exceedance
 ```
-#### Sensitivity Analysis based on Alignments
+# Sensitivity Analysis
 To propagate uncertainty between the function of the proportion of plastic particles and correction factor , we approximate the new uncertainty using a 1st order Taylor series.
 
 [https://my.che.utah.edu/~tony/img/Equations/error_prop/10_error_propagation_clip_image002_0004.gif]
@@ -1720,7 +1776,7 @@ sensitivity <- sfBay_new2 %>%
   mutate(#conc.upper.68 = case_when(sample.matrix.specific == "surface water" ~ CF.upper.68 * unaligned.particle.L.master,
           #                         sample.matrix == "sediment" ~ CF.upper.68 * particles.kg.blank.corrected.particle.corrected,
            #                        sample.matrix == "fish" ~ CF.upper.68 * particles.fish.blank.corrected.particle.corrected),
-         conc.upper.95 =  case_when(sample.matrix == "water" ~ CF.upper.95 * unaligned.particle.L.master,
+         conc.upper.95 =  case_when(sample.matrix == "water" ~ CF.upper.95 * particles.L.blank.corrected.particle.corrected.fiber.corrected,
                                    sample.matrix == "sediment" ~ CF.upper.95 * particles.kg.blank.corrected.particle.corrected,
                                    sample.matrix == "fish" ~ CF.upper.95 * particles.fish.blank.corrected.particle.corrected),
          #conc.upper.99 =  case_when(sample.matrix.specific == "surface water" ~ CF.upper.99 * unaligned.particle.L.master,
@@ -1730,7 +1786,7 @@ sensitivity <- sfBay_new2 %>%
         # conc.lower.68 = case_when(sample.matrix.specific == "surface water" ~ CF.lower.68 * unaligned.particle.L.master,
          #                          sample.matrix == "sediment" ~ CF.lower.68 * particles.kg.blank.corrected.particle.corrected,
           #                         sample.matrix == "fish" ~ CF.lower.68 * particles.fish.blank.corrected.particle.corrected),
-         conc.lower.95 =  case_when(sample.matrix == "water" ~ CF.lower.95 * unaligned.particle.L.master,
+         conc.lower.95 =  case_when(sample.matrix == "water" ~ CF.lower.95 * particles.L.blank.corrected.particle.corrected.fiber.corrected,
                                    sample.matrix == "sediment" ~ CF.lower.95 * particles.kg.blank.corrected.particle.corrected,
                                    sample.matrix == "fish" ~ CF.lower.95 * particles.fish.blank.corrected.particle.corrected)#,
          #conc.lower.99 =  case_when(sample.matrix.specific == "surface water" ~ CF.lower.99 * unaligned.particle.L.master,
@@ -1741,21 +1797,26 @@ sensitivity <- sfBay_new2 %>%
 # first convert uncertainties into percentages
 #calcualted relative standard deviation for concentration factor
   mutate(CF.rsd = CF.sd / CF) %>% 
-  #calculate alignment relative standard deviation (%) for concentraiont
+  #calculate plastic proportions relative standard deviation (%)#
   mutate(proportion.rsd = proportion.sd / proportion) %>% 
-  ## next calculate uncertainty of proportion x alignment
-  mutate(combined.rsd = sqrt(CF.rsd ^ 2 + proportion.rsd ^ 2)) %>% 
+  #Calculate fiber proportion relative SD (%)##
+  mutate(fiber.correction.rsd = fiber.correction.sd / fiber.correction) %>% 
+  ## next calculate uncertainty of proportion x alignment x fiber correction factor
+  mutate(combined.rsd = sqrt(CF.rsd ^ 2 + proportion.rsd ^ 2 + fiber.correction.rsd ^ 2)) %>% 
   #now calculate combined uncertainty
   mutate(conc.combined.sd = Conc * combined.rsd) %>% 
   #now calculate combined CI's
-  mutate(conc.combined.upper.95 = Conc + 1.96 * (conc.combined.sd / sqrt(alpha.n)),
-         conc.combined.lower.95 = Conc - 1.96 * (conc.combined.sd / sqrt(alpha.n))) %>% 
+  mutate(conc.combined.upper.95 = Conc + 1.96 * (conc.combined.sd / sqrt(fiber.correction.n)), #use smallest N
+         conc.combined.lower.95 = Conc - 1.96 * (conc.combined.sd / sqrt(fiber.correction.n))) %>% 
  #  #recalculate alignment 95% CI's using actual SD
  # mutate(conc.upper.95.alignment = Conc + 1.96 * (surface.water.CF.rsd * unaligned.particle.L.master),
  #        conc.lower.95.alignment = Conc - 1.96 * (surface.water.CF.rsd * unaligned.particle.L.master))# %>% 
  #  #calculate proportion 95% CI's
     mutate(conc.upper.95.proportion = Conc + 1.96 * (proportion.rsd * Conc)  / sqrt(proportion.n),
-           conc.lower.95.proportion = Conc - 1.96 * (proportion.rsd * Conc) / sqrt(proportion.n))
+           conc.lower.95.proportion = Conc - 1.96 * (proportion.rsd * Conc) / sqrt(proportion.n)) %>% 
+  #Calculate fiber proportion uncertainty
+  mutate(conc.upper.95.fiber = Conc + 1.96 * (proportion.rsd * Conc)  / sqrt(proportion.n),
+           conc.lower.95.fiber = Conc - 1.96 * (fiber.correction.rsd * Conc) / sqrt(fiber.correction.n))
 
 sensitivity
                                    
@@ -1788,9 +1849,10 @@ sensitivity %>%
   filter(Sampling.apparatus == "Manta Trawl") %>% 
   dplyr::select(c(CF.rsd,
                   proportion.rsd,
+                  fiber.correction.rsd,
                   combined.rsd,
                   sampleID)) %>% 
-  summarize(CF.rsd = mean(CF.rsd), proportion.rsd = mean(proportion.rsd), combnined.rsd = mean(combined.rsd))
+  summarize(CF.rsd = mean(CF.rsd), proportion.rsd = mean(proportion.rsd),  fiber.correction.rsd = mean(fiber.correction.rsd), combined.rsd = mean(combined.rsd))
 ```
 
 ### Comparison of Sensitivities
@@ -1801,12 +1863,14 @@ wide.sensitivity.exceedances <- sensitivity %>%
   dplyr::select(c(Conc,
                   conc.combined.upper.95, conc.combined.lower.95, #combined
                   conc.upper.95.proportion, conc.lower.95.proportion, #proportions only
+                  conc.upper.95.fiber, conc.lower.95.fiber, #fiber corrections only
                   conc.lower.95, conc.upper.95, #alignment only
                   sampleID)) %>% 
   pivot_longer(-c(sampleID), names_to = "factor", values_to = "conc") %>% 
   mutate(variable = case_when(
-    grepl("proportion", factor) ~ "proportion",
+    grepl("proportion", factor) ~ "plastic proportion",
     grepl("combined", factor) ~ "combined",
+    grepl("fiber", factor) ~ "fiber correction",
     factor == "Conc" ~ "median",
     factor == "conc.lower.95" ~ "alignment",
     factor == "conc.upper.95" ~ "alignment")) %>% 
@@ -1827,20 +1891,28 @@ wide.sensitivity.exceedances <- sensitivity %>%
   pivot_wider(c(variable, interval, percent.above.threshold1), names_from = interval, values_from = percent.above.threshold1)
 
 #get median
-median <- wide.sensitivity.exceedances$median[3]
+median <- wide.sensitivity.exceedances$median[4]
 
-sensitivity.figure <- wide.sensitivity.exceedances %>% 
+
+wide.sensitivity.exceedances.prep <- wide.sensitivity.exceedances %>% 
   filter(variable != "median") %>% 
   #arrange(desc(lower)) %>% 
   mutate(name = factor(factor(variable), 
-                           levels = c("combined", "alignment", "proportion"))) %>% 
-#plot  
-ggplot() +
+                           levels = c("combined", "alignment", "plastic proportion", "fiber correction")))
+  ####plot####
+## Break axis ##
+#ide.sensitivity.exceedances.prep$facet <- wide.sensitivity.exceedances.prep$upper < 0.5
+
+sensitivity.figure <- 
+  wide.sensitivity.exceedances.prep %>% 
+  ggplot() +
   geom_errorbarh(aes(y = name, xmin = lower, xmax = upper),
                  na.rm = TRUE) +
   geom_vline(xintercept = median, linetype = "dashed", color = "red", size = 1.2) +
-  scale_x_continuous(name = "Percentage of Manta Trawl Samples Exceeding \n Food Dilution Threshold One (% +- 95% CI)",
-                       labels = scales::percent_format(scale = 100)) +
+#  facet_grid(. ~ facet, scales = "free", space = "free") +
+  scale_x_continuous(name = "Percentage of All SF Bay Manta Trawl Samples \n Exceeding Food Dilution Threshold One (+- 95% CI)",
+                       labels = scales::percent_format(scale = 100, accuracy= 1),
+                     limits = c(0,0.5)) +
   ylab("Influential variable") +
   theme.type
 
@@ -1980,9 +2052,11 @@ sfBayECDF_sensitivity <- sensitivity %>%
   #xlab(paste0("Particles/L (" ,x1D_set, " to ", x2D_set, "um)"))+
   scale_y_continuous(labels = scales::percent)+
   coord_trans(x = "log10") +
-  scale_x_continuous(breaks = scales::trans_breaks("log10", function(x) 10^x),labels = comma_signif,
-                     limits = c(1e-4,100 ))+
-  #annotation_logticks(sides = "b")+ #log scale rick marks on bottom
+  scale_x_continuous(#breaks = scales::trans_breaks("log10", function(x) 10^x,n = 10),
+                     breaks = c(0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10, 50, 100),
+                     labels = comma_signif,
+                     limits = c(1e-3,100))+
+  annotation_logticks(scaled = FALSE)+ #log scale rick marks on bottom
   theme.type +
   theme(legend.title = element_blank(),
         legend.position = c(0.1,0.6),
@@ -2632,6 +2706,67 @@ ggsave(plot = sfBayECDF_alignedXtechnique,
        dpi = 300)
 ```
 
+#Probabilistic Analysis
+## Fiber Correction Distribution
+### FitDistrPlus method
+```{r}
+library(fitdistrplus)
+
+#extract only proportions data
+shape_fiber <- shape_counts %>% 
+  filter(category == "fiber") %>% 
+  mutate(fiber.adjustment = 1/ (1 - proportion))
+
+fiber.proportions <- shape_fiber$proportion
+#fiber.proportions <- shape_fiber$fiber.adjustment
+
+#determine possible candidates with descdist
+descdist(fiber.proportions, discrete = FALSE)
+```
+
+```{r}
+fiber.proprotions.fit.beta <- fitdist(fiber.proportions, "beta")
+plot(fiber.proprotions.fit.beta)
+summary(fiber.proprotions.fit.beta)
+```
+
+### Gamlss package
+The gamlss package for R offers the ability to try many different distributions and select the "best" according to the GAIC (the generalized Akaike information criterion). The main function is fitDist. An important option in this function is the type of the distributions that are tried. For example, setting type = "realline" will try all implemented distributions defined on the whole real line whereas type = "realsplus" will only try distributions defined on the real positive line. Another important option is the parameter k, which is the penalty for the GAIC. In the example below, I set the parameter k=2 which means that the "best" distribution is selected according to the classic AIC. You can set k to anything you like, such as log(n) for the BIC.
+
+```{r}
+fit <- fitDist(fiber.proportions, k = 2, type = "realAll", trace = TRUE, try.gamlss = TRUE)
+
+summary(fit)
+```
+
+```{r}
+n = 10000
+## Generate values for the three distributions
+
+fiber.func <- function(F){
+  success <- FALSE
+  while(!success){
+  F = rSEP2(n = 1, mu = fit$mu.coefficients[1], sigma = - fit$sigma.coefficients[1], nu = fit$nu.coefficients[1], 
+            tau = - fit$tau.coefficients[1]) #PDF
+    success <- F > 0} #lower limit of 0
+    return(F)
+  }
+  
+fiber <- data.frame(fiber.coefficent = numeric(0));
+
+for(i in 1:n){
+  X <- fiber.func()
+  fiber <- rbind(fiber, X)
+}
+
+colnames(fiber) <- c("fiber.proportion")
+  
+summary(fiber$fiber.proportion)
+fiber %>% ggplot(aes(x = fiber.proportion)) + geom_histogram() + scale_x_log10()
+
+```
+
+
 #Compare fish concentrations and ambient
 Two-Way ANOVA needed!!
 ```{r}
@@ -2729,6 +2864,9 @@ sfBay_aligned %>%
   theme.type 
 
 ```
+
+
+
 # Map
 ## Libraries
 ```{r}
