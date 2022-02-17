@@ -1533,7 +1533,7 @@ fiber_hist <- fiber %>%
   #geom_histogram(fill = "lightblue") +
   #@scale_x_log10() +
   scale_x_continuous(limits = c(0, 100),
-                     breaks = c(0, round(fiber5,0), round(fiber50,0), round(fiber95,0), 100)) +
+                     breaks = c(round(fiber5,0), round(fiber50,0), round(fiber95,0), 100)) +
   geom_vline(aes(xintercept = median(fiber.adjustment)),
              linetype = "solid") +
   geom_vline(aes(xintercept = quantile(fiber.adjustment, 0.95)),
@@ -1544,8 +1544,8 @@ fiber_hist <- fiber %>%
   ylab("Relative Density") +
   theme.type +
   theme(legend.position = "none",
-        axis.title.y = element_text(size = 18),
-        axis.title.x = element_text(size = 18),
+        axis.title.y = element_text(size = 16),
+        axis.title.x = element_text(size = 16),
         axis.text.y = element_blank())
   
 fiber_hist
@@ -1559,7 +1559,7 @@ fiber_hist
 plastic.proportions.manta <- manta.sample.plastic.percentages$freq / 1000
 
 #determine possible candidates with descdist
-cullen.frey.plastic <- descdist(plastic.proportions.manta, discrete = FALSE)
+cullen.frey.plastic <- descdist(plastic.proportions.manta, discrete = FALSE, boot =1000)
 cullen.frey.plastic
 ```
 
@@ -1618,7 +1618,7 @@ plastic_hist <- plastic %>%
   #geom_histogram(fill = "lightblue") +
   #@scale_x_log10() +
   scale_x_continuous(limits = c(0, 1),
-                     breaks = c(0, round(plastic5,2), round(plastic50,2), round(plastic95,2), 1)) +
+                     breaks = c(0, round(plastic5,2), round(plastic50,2), round(plastic95,2))) +
   geom_vline(aes(xintercept = median(plastic.proportion)),
              linetype = "solid") +
   geom_vline(aes(xintercept = quantile(plastic.proportion, 0.95)),
@@ -1629,8 +1629,8 @@ plastic_hist <- plastic %>%
   ylab("Relative Density") +
   theme.type +
   theme(legend.position = "none",
-        axis.title.y = element_text(size = 18),
-        axis.title.x = element_text(size = 18),
+        axis.title.y = element_text(size = 16),
+        axis.title.x = element_text(size = 16),
         axis.text.y = element_blank())
   
 plastic_hist
@@ -1651,7 +1651,7 @@ min.alpha = 1.01 #from Kooi et al 2021
 max.alpha = 2.56 #from Kooi et al 2021
 
 #create truncated distribution of alpha values based on variation in SF Bay dataset
-alpha$alpha <- rtnorm(n = n, mean = m.alpha, sd = sd.alpha, lower = min.alpha, upper = max.alpha)
+alpha$alpha <- rnorm(n = n, mean = m.alpha, sd = sd.alpha)  #rtnorm(n = n, mean = m.alpha, sd = sd.alpha, lower = min.alpha, upper = max.alpha)
 
 #define for plotting
 alpha5 <- as.vector(quantile(alpha$alpha, 0.05)[1])
@@ -1676,8 +1676,8 @@ alpha_hist <- alpha %>%
   ylab("Relative Density") +
   theme.type +
   theme(legend.position = "none",
-        axis.title.y = element_text(size = 18),
-        axis.title.x = element_text(size = 18),
+        axis.title.y = element_text(size = 16),
+        axis.title.x = element_text(size = 16),
         axis.text.y = element_blank())
   
 alpha_hist
@@ -1716,7 +1716,8 @@ CF_hist <- alpha2 %>%
   xlab("Alignment Correction Factor") +
   theme.type +
   theme(legend.position = "none",
-        #axis.title.y = element_blank(),
+      axis.title.y = element_text(size = 16),
+        axis.title.x = element_text(size = 16),
         axis.text.y = element_blank())
   
 CF_hist
@@ -1754,7 +1755,7 @@ combined.corrections_hist <- combined.distributions %>%
   #geom_histogram(fill = "lightblue") +
   #@scale_x_log10() +
   scale_x_continuous(limits = c(0, 20000),
-                     breaks = c(round(combined.corrections5,0), round(combined.corrections50,0), round(combined.corrections95,0), 20000, 40000)) +
+                     breaks = c(round(combined.corrections5,0), round(combined.corrections50,0), round(combined.corrections95,0))) +
   geom_vline(aes(xintercept = median(combined.corrections)),
              linetype = "solid") +
   geom_vline(aes(xintercept = quantile(combined.corrections, 0.95)),
@@ -1765,9 +1766,10 @@ combined.corrections_hist <- combined.distributions %>%
   xlab("Combined Correction Factors") +
   theme.type +
   theme(legend.position = "none",
-        #axis.title.y = element_blank(),
+        axis.title.y = element_text(size = 16),
+        axis.title.x = element_text(size = 16),
         axis.text.y = element_blank())
-  
+
 combined.corrections_hist
 ```
 
@@ -1797,9 +1799,25 @@ PDFs
 ggsave(plot = PDFs,
        filename = "PDFs.jpeg",
        path = "output/figures/", 
+       width = 11, height = 9, units = "in",
+       bg = "white",
+       dpi = 300)
+```
+```{r}
+cullenFreys <- ggarrange(cullen.frey.fiber, cullen.frey.plastic,
+             ncol = 2,
+             nrow = 3,
+             labels = c("A", "B", "C", "D", "E"))
+
+cullenFreys
+
+ggsave(plot =cullenFreys,
+       filename = "cullenFreys.jpeg",
+       path = "output/figures/", 
        width = 11, height = 8, units = "in",
        bg = "white",
        dpi = 300)
+
 ```
 
 
@@ -2210,27 +2228,59 @@ sensitivity %>%
 ```
 
 ### Comparison of Sensitivities
+#### Matrix of uncertainties for corrections
+```{r}
+correction_factors <- data.frame(factor = c("fiber", "plastic", "size", "combined"),
+                                 percentile.5th = c(fiber5, plastic5, CF5, combined.corrections5),
+                                 median = c(fiber50, plastic50, CF50, combined.corrections50),
+                                 percentile.95th = c(fiber95, plastic95, CF95, combined.corrections95))
+
+correction_factors
+```
+
+```{r}
+sfBay_aligned_sensitivity <- sfBay_aligned %>% 
+  ## hold everything constant except one variable
+  mutate(fiber5.sensitivity = fiber5 * plastic50 * CF50,
+         fiber95.sensitivity = fiber95 * plastic50 * CF50,
+         plastic5.sensitivity = fiber50 * plastic5 * CF50,
+         plastic95.sensitivity = fiber50 * plastic95 * CF50,
+         CF5.sensitivity = fiber50 * plastic50 * CF5,
+         CF95.sensitivity = fiber50 * plastic50 * CF95) %>% 
+  #multiply blank-corrected particles by correction factors
+  mutate(conc.fiber.05 = particles.L.blank.corrected * fiber5.sensitivity,
+         conc.fiber.95 = particles.L.blank.corrected * fiber95.sensitivity,
+         conc.plastic.05 = particles.L.blank.corrected * plastic5.sensitivity,
+         conc.plastic.95 = particles.L.blank.corrected * plastic95.sensitivity,
+         conc.CF.05 = particles.L.blank.corrected * CF5.sensitivity,
+         conc.CF.95 = particles.L.blank.corrected * CF95.sensitivity,
+         conc.combined.05 = particles.L.blank.corrected * combined.corrections5,
+         conc.combined.95 = particles.L.blank.corrected * combined.corrections95)
+```
+
 ```{r}
 #prep rest
-wide.sensitivity.exceedances <- sensitivity %>% 
+wide.sensitivity.exceedances <- sfBay_aligned_sensitivity %>% 
+  # remove non-bay samples
+  filter(!locationNew %in% c("National Marine Sanctuary")) %>% 
+  # only manta trawl
   filter(Sampling.apparatus == "Manta Trawl") %>% 
-  dplyr::select(c(Conc,
-                  conc.combined.upper.95, conc.combined.lower.95, #combined
-                  conc.upper.95.proportion, conc.lower.95.proportion, #proportions only
-                  conc.upper.95.fiber, conc.lower.95.fiber, #fiber corrections only
-                  conc.lower.95, conc.upper.95, #alignment only
+  dplyr::select(c(particle.L.master.50,
+                  conc.combined.05, conc.combined.95, #combined
+                  conc.plastic.05, conc.plastic.95, #proportions only
+                  conc.fiber.05, conc.fiber.95, #fiber corrections only
+                  conc.CF.05, conc.CF.95, #alignment only
                   sampleID)) %>% 
   pivot_longer(-c(sampleID), names_to = "factor", values_to = "conc") %>% 
   mutate(variable = case_when(
-    grepl("proportion", factor) ~ "plastic proportion",
-    grepl("combined", factor) ~ "combined",
+    grepl("plastic", factor) ~ "plastic proportion",
+    grepl("combined", factor) ~ "combined alignments and corrections",
     grepl("fiber", factor) ~ "fiber correction",
-    factor == "Conc" ~ "median",
-    factor == "conc.lower.95" ~ "alignment",
-    factor == "conc.upper.95" ~ "alignment")) %>% 
+    grepl("CF", factor) ~ "size alignment",
+    factor == "particle.L.master.50" ~ "median")) %>% 
   mutate(interval = case_when(
-    grepl("upper", factor) ~ "upper",
-    grepl("lower", factor) ~ "lower",
+    grepl("05", factor) ~ "lower",
+    grepl("95", factor) ~ "upper",
     variable == "median" ~ "median"
   )) %>% 
   ## compare to thresholds
@@ -2245,29 +2295,29 @@ wide.sensitivity.exceedances <- sensitivity %>%
   pivot_wider(c(variable, interval, percent.above.threshold1), names_from = interval, values_from = percent.above.threshold1)
 
 #get median
-median <- wide.sensitivity.exceedances$median[4]
+median <- wide.sensitivity.exceedances$median[3]
 
 
 wide.sensitivity.exceedances.prep <- wide.sensitivity.exceedances %>% 
   filter(variable != "median") %>% 
   #arrange(desc(lower)) %>% 
   mutate(name = factor(factor(variable), 
-                           levels = c("combined", "alignment", "plastic proportion", "fiber correction")))
+                           levels = c("combined alignments and corrections", "fiber correction", "size alignment", "plastic proportion")))
   ####plot####
 ## Break axis ##
 #ide.sensitivity.exceedances.prep$facet <- wide.sensitivity.exceedances.prep$upper < 0.5
 
-sensitivity.figure <- 
-  wide.sensitivity.exceedances.prep %>% 
+sensitivity.figure <- wide.sensitivity.exceedances.prep %>% 
   ggplot() +
   geom_errorbarh(aes(y = name, xmin = lower, xmax = upper),
                  na.rm = TRUE) +
   geom_vline(xintercept = median, linetype = "dashed", color = "red", size = 1.2) +
+  scale_y_discrete(labels = c("combined alignments \n and corrections", "fiber correction", "size alignment",  "plastic proportion")) +
 #  facet_grid(. ~ facet, scales = "free", space = "free") +
   scale_x_continuous(name = "Percentage of All SF Bay Manta Trawl Samples \n Exceeding Food Dilution Threshold One (+- 95% CI)",
                        labels = scales::percent_format(scale = 100, accuracy= 1),
-                     limits = c(0,0.5)) +
-  ylab("Influential variable") +
+                     limits = c(0,1.0)) +
+  ylab("Corrections/Alignments") +
   theme.type
 
 sensitivity.figure  
@@ -2276,7 +2326,7 @@ sensitivity.figure
 ggsave(plot = sensitivity.figure,
        filename = "sensitivity.figure.jpeg",
        path = "output/figures/", 
-       width = 7, height = 5, units = "in",
+       width = 8, height = 6, units = "in",
        bg = "white",
        dpi = 300)
 ```
@@ -2296,7 +2346,7 @@ sensitivity.analysis <- sensitivity %>%
   filter(sample.matrix.specific == "surface water") %>% 
   #just select concentrations
   dplyr::select(c(particle.L.master.50,
-                  particle.L.master.5,
+                  particle.L.master.05,
                   particle.L.master.95,
                   particle.L.master.25,
                   particle.L.master.75
@@ -2337,6 +2387,8 @@ write.csv(sensitivity.analysis ,
 ```{r}
 #ECDF by System
 sfBayECDF_sensitivity <- sfBay_aligned %>% 
+  # remove non-bay samples
+  filter(!locationNew %in% c("National Marine Sanctuary")) %>% 
   filter(source == "SFEI") %>% 
   filter(sample.matrix.specific == "surface water") %>% 
   filter(Sampling.apparatus == "Manta Trawl") %>% 
@@ -2451,6 +2503,8 @@ manta.count <- sfBay_aligned %>%
 
 
 sensitivity.analysis.manta_inter <- sfBay_aligned %>% 
+   # remove non-bay samples
+  filter(!locationNew %in% c("National Marine Sanctuary")) %>% 
   filter(source == "SFEI") %>% 
   filter(sample.matrix.specific == "surface water") %>% 
   filter(Sampling.apparatus == "Manta Trawl") %>%
@@ -2514,6 +2568,8 @@ manta.count <- sfBay_aligned %>%
 
 
 sensitivity.analysis.manta.oxidative_inter <- sfBay_aligned %>% 
+   # remove non-bay samples
+  filter(!locationNew %in% c("National Marine Sanctuary")) %>% 
   filter(source == "SFEI") %>% 
   filter(sample.matrix.specific == "surface water") %>% 
   filter(Sampling.apparatus == "Manta Trawl") %>%
@@ -2957,6 +3013,8 @@ vals <- c("Unaligned" = "black", "Aligned" = "deepskyblue")
 
 #ECDF by System
 sfBayECDF <- sfBay_new %>% 
+  # remove non-bay samples
+  filter(!locationNew %in% c("National Marine Sanctuary")) %>% 
   filter(source == "SFEI") %>% 
   drop_na(particle.L.master) %>% 
   filter(particle.L.master > 0.0) %>% 
