@@ -173,7 +173,10 @@ sfBay <- read.csv("data/SFBayData.csv", na.strings = "NA", stringsAsFactors = TR
   rename(sampleID = ï..sampleID,
           x1M = Min.particle.size.um,
          x2M = Max.particle.size.um) %>% 
-  mutate(Sample.Type = "sample") 
+  mutate(Sample.Type = "sample") %>% 
+  mutate(Sampling.apparatus = case_when(
+    Sampling.apparatus == "24-hr pipe" ~ "depth-integrated perisaltic pump",
+    TRUE ~ as.character(Sampling.apparatus)))
 ```
 
 ## Cleanup
@@ -546,6 +549,11 @@ manta.site.plastic.percentages.graph <- manta.site.plastic.percentages %>%
                      limits = c(0,100),
                      labels = scales::percent_format(scale = 1)) +
   scale_fill_uchicago() +
+  scale_y_discrete(labels = c("Miscellanious other \n locations",
+                              "National Marine \n Sanctuary",
+                              "Central Bay",
+                              "South Bay",
+                              "Lower South Bay"                              )) +
   theme.type +
   theme(legend.position = "none",
         axis.title.y = element_blank())
@@ -561,12 +569,16 @@ ggsave(plot = manta.site.plastic.percentages.graph,
        dpi = 300)
 ```
 ##### ANOVA
+###### Locations
+One-way anova for manta plastic proportion data between sites.
 ```{r}
 summary(aov(freq ~ site,
   data = manta.sample.plastic.percentages))
 ```
 
 Because the one-way anova is not significant, plastic particle proportion corrections should be applied generically instead of on a site-specific basis.
+
+
 
 #### Plastic percentages for manta
 ```{r}
@@ -772,7 +784,74 @@ write.csv(pretty_proportions,
           )
 ```
 
-#### Breakdown of poylmers in categories
+### One-Way ANOVA on Matrices
+One-way ANOVA for plastic percentage of total particles between matrices
+```{r}
+particle.data.annotated <- particle.data.clean %>% 
+   # annotate polymer types
+   mutate(general = case_when(
+    grepl("Unknown", PlasticType, ignore.case = TRUE) ~ "unknown",
+    grepl("anthropogenic", PlasticType, ignore.case = TRUE) ~ "unknown",
+    grepl("natural", PlasticType, ignore.case = TRUE) ~ "natural",
+    PlasticType == "Non-Synthetic Fiber (cotton, silk, wool)" ~ "natural",
+    PlasticType == "Wool" ~ "natural",
+    PlasticType == "Cotton" ~ "natural",
+    PlasticType == "Cellulosic" ~ "natural",
+    PlasticType == "Glass" ~ "anthropogenic (not plastic)",
+    PlasticType == "Asphalt" ~ "anthropogenic (not plastic)",
+    PlasticType == "Not Characterized" ~ "Not Characterized"
+    )) %>% 
+  replace_na(list(general = "plastic"))
+
+particle.counts <- particle.data.annotated %>% 
+  filter(general != "Not Characterized") %>% 
+  group_by(SampleID) %>% 
+  summarize(total.particle.count = n())
+
+
+proportions_samples_allMatrices <- particle.data.annotated %>% 
+  filter(general != "Not Characterized") %>% 
+  #collapse levels of polymer types
+  group_by(SampleID, SampleMatrix, general) %>% 
+  summarize(count = n()) %>% 
+  #only plastic
+  filter(general == "plastic") %>% 
+  #join with counts
+  left_join(particle.counts, by = "SampleID") %>% 
+  #get proportions
+  mutate(proportion = count/total.particle.count)
+
+#run ANOVA
+proportion_matrix_aov <- aov(proportion ~ SampleMatrix, data = proportions_samples_allMatrices)
+summary(proportion_matrix_aov)
+```
+#### Post-Hoc
+```{r}
+tukey <- TukeyHSD(proportion_matrix_aov)
+
+#save 
+tukey.data <- as.data.frame(tukey$SampleMatrix)
+
+write.csv(tukey.data,
+          "output/data/tukey_data.csv")
+
+tukey
+```
+#### Location and matrix
+```{r}
+proportions_samples_allMatrices_summary <- proportions_samples_allMatrices %>% 
+  group_by(SampleMatrix) %>% 
+  summarize(ave.proportion = mean(proportion),
+            sd.proportion = sd(proportion),
+            n.proportion = n()) 
+write.csv(proportions_samples_allMatrices_summary,
+          "output/data/proportions_samples_allMatrices_summary.csv")
+
+proportions_samples_allMatrices_summary
+```
+
+
+### Breakdown of poylmers in categories
 ##### Collapsible Tree
 ```{r}
 tree <- polymer_site_matrices %>%
@@ -1209,17 +1288,48 @@ shape_summary_manta_noFibers <- particle.data.clean.plastic %>%
   group_by(Sample.Type, MorphologicalCategory) %>% 
   summarize(ave.prop = mean(proportion), sd.prop = sd(proportion), n.prop = n())
 
-shape_summary_manta_noFibers
-
+####prep manta trawl with fibers for joining with other data###
+#get total count
+manta_with_fibers_count <- manta_with_fibers %>% 
+   filter(!grepl("blank", sample_type, ignore.case = TRUE)) %>% 
+  rename(MorphologicalCategory = category,
+        Sample.Type = SampleType) %>% 
+  group_by(Sample.Type) %>% 
+  summarize(total.particle.count = n())
+  
+#get shape proportions
+shape_summary_manta_Fibers <- manta_with_fibers %>% 
+   filter(!grepl("blank", sample_type, ignore.case = TRUE)) %>% 
+  rename(MorphologicalCategory = category,
+        Sample.Type = SampleType) %>% 
+  group_by(Sample.Type, MorphologicalCategory) %>% 
+  summarize(shape_count = n()) %>% 
+  left_join(manta_with_fibers_count) %>% 
+  mutate(proportion = shape_count / total.particle.count) %>% 
+  group_by(Sample.Type, MorphologicalCategory) %>% 
+  summarize(ave.prop = mean(proportion), sd.prop = sd(proportion), n.prop = n()) %>% 
+  mutate(MorphologicalCategory = case_when(
+    MorphologicalCategory == "sphere" ~ "Sphere",
+    MorphologicalCategory == "film" ~ "Film",
+    MorphologicalCategory == "foam" ~ "Foam",
+    MorphologicalCategory == "fiber" ~ "Fiber",
+    MorphologicalCategory == "fragment" ~ "Fragment",
+    MorphologicalCategory == "fiber bundle" ~ "Fiber Bundle"
+  ))
+  
 
 #join manta without fibers and other data
-shape_summary <- rbind(simple_shape_summary, shape_summary_manta_noFibers)
+shape_summary <- rbind(simple_shape_summary, shape_summary_manta_noFibers, shape_summary_manta_Fibers)
 shape_summary
 ```
 
 ##### Proportions Ploit
 ```{r}
 specific_proportions_shapes_graph <- shape_summary %>% 
+  mutate(Sample.Type = case_when(
+    Sample.Type == "Surface (Manta Trawl)" ~ "Surface (Manta Trawl; Fibers Subtracted)",
+    TRUE ~ as.character(Sample.Type)
+  )) %>% 
   ggplot(aes(x = ave.prop, y = Sample.Type, fill = MorphologicalCategory)) +
   geom_col(position = "fill") +
   #geom_errorbarh(aes(xmax = ave.prop + sd.prop, xmin = ave.prop - sd.prop),
@@ -1731,7 +1841,8 @@ distributions_final <- cbind(distributions, alpha2)
 
 combined.distributions <- distributions_final %>% 
   as.data.frame() %>% 
-  mutate(combined.corrections = plastic.proportion * fiber.proportion * CF)
+  mutate(combined.corrections = plastic.proportion * fiber.proportion * CF) %>% 
+  mutate(combined.corrections.noFiberCorrection = plastic.proportion * CF)
 
 summary(combined.distributions$combined.corrections)
 quantile(combined.distributions$combined.corrections, c(0.05, .25, .50,  .75, .90, 0.95, .99) )
@@ -1745,6 +1856,13 @@ combined.corrections25 <- as.vector(quantile(combined.distributions$combined.cor
 combined.corrections50 <- as.vector(quantile(combined.distributions$combined.corrections, 0.50)[1])
 combined.corrections75 <- as.vector(quantile(combined.distributions$combined.corrections, 0.75)[1])
 combined.corrections95 <- as.vector(quantile(combined.distributions$combined.corrections, 0.95)[1])
+
+#define for plotting and corrections later
+combined.corrections.noFiberCorrection5 <- as.vector(quantile(combined.distributions$combined.corrections.noFiberCorrection, 0.05)[1])
+combined.corrections.noFiberCorrection25 <- as.vector(quantile(combined.distributions$combined.corrections.noFiberCorrection, 0.25)[1])
+combined.corrections.noFiberCorrection50 <- as.vector(quantile(combined.distributions$combined.corrections.noFiberCorrection, 0.50)[1])
+combined.corrections.noFiberCorrection75 <- as.vector(quantile(combined.distributions$combined.corrections.noFiberCorrection, 0.75)[1])
+combined.corrections.noFiberCorrection95 <- as.vector(quantile(combined.distributions$combined.corrections.noFiberCorrection, 0.95)[1])
 
 
 #plot
@@ -1840,11 +1958,7 @@ sfBay_aligned <- sfBay3 %>%
    sample.matrix == "fish" ~ CFfnx(a = alpha.fish, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set))#,
 
 ) %>% 
-  #baseline corrections
-  mutate(particle.L.master = particles.L.blank.corrected.particle.corrected.fiber.corrected * CF,
-         particle.fish.master = particles.fish.blank.corrected.particle.corrected * CF,
-         particles.kg.master = particles.kg.blank.corrected.particle.corrected * CF) %>% 
-  rename(unaligned.particle.L.master = particles.L.blank.corrected.particle.corrected) %>% 
+  
   #probabilistic corrections
   mutate(particle.L.master.05 = case_when(Sampling.apparatus == "Manta Trawl" ~
                                                  particles.L.blank.corrected * combined.corrections5)) %>% 
@@ -1857,6 +1971,26 @@ sfBay_aligned <- sfBay3 %>%
                                                  particles.L.blank.corrected * combined.corrections75)) %>% 
   mutate(particle.L.master.95 = case_when(Sampling.apparatus == "Manta Trawl" ~
                                                  particles.L.blank.corrected * combined.corrections95)) %>% 
+  #probabilistic corrections (no fiber correction)
+  mutate(particle.L.master.05.noFiberCorrection = case_when(Sampling.apparatus == "Manta Trawl" ~
+                                                 particles.L.blank.corrected * combined.corrections.noFiberCorrection5)) %>% 
+  mutate(particle.L.master.25.noFiberCorrection = case_when(Sampling.apparatus == "Manta Trawl" ~
+                                                 particles.L.blank.corrected * combined.corrections.noFiberCorrection25)) %>% 
+  mutate(particle.L.master.50.noFiberCorrection = case_when(Sampling.apparatus == "Manta Trawl" ~
+                                                 particles.L.blank.corrected * combined.corrections.noFiberCorrection50,
+                                       Sampling.apparatus == "1-L grab" ~ particles.L.blank.corrected * CF)) %>% 
+    mutate(particle.L.master.75.noFiberCorrection = case_when(Sampling.apparatus == "Manta Trawl" ~
+                                                 particles.L.blank.corrected * combined.corrections.noFiberCorrection75)) %>% 
+  mutate(particle.L.master.95.noFiberCorrection = case_when(Sampling.apparatus == "Manta Trawl" ~
+                                                 particles.L.blank.corrected * combined.corrections.noFiberCorrection95)) %>% 
+  #baseline corrections
+  mutate(particle.L.master = case_when(Sampling.apparatus == "Manta Trawl" ~ particle.L.master.50,
+                                       Sampling.apparatus == "1-L grab" ~  particles.L.blank.corrected * CF,
+                                       sample.matrix.specific == "stormwater" ~  particles.L.blank.corrected.particle.corrected * CF,
+                                       sample.matrix.specific == "wastewater" ~  particles.L.blank.corrected.particle.corrected * CF),
+         particle.fish.master = particles.fish.blank.corrected.particle.corrected * CF,
+         particles.kg.master = particles.kg.blank.corrected.particle.corrected * CF) %>% 
+  rename(unaligned.particle.L.master = particles.L.blank.corrected.particle.corrected) %>% 
 
   #filter(unaligned.particle.L.master > 0) %>%  #remove blanks. should convert to 1/2 LOQ...
   mutate(source = "SFEI") %>% 
@@ -1902,7 +2036,7 @@ water_SFEI_mesh_matrix <- sfBay_aligned %>%
 ## PLOTTING ##
   ggplot(aes(y = concentration, x =factor(apparatus.matrix, level = c('surface water (Manta Trawl)',
                                                                       'surface water (1-L grab)',
-                                                                      'stormwater (24-hr pipe)',
+                                                                      'stormwater (depth-integrated perisaltic pump)',
                                                                       'wastewater (Composite)')),
                                           color = alignment_pretty)) +
   #aligned
@@ -2039,6 +2173,7 @@ fish_SFEI_mesh_matrix <-  fish_SFEI_mesh_matrix + theme(legend.position = "none"
 boxplot <- ggarrange(water_SFEI_mesh_matrix, #first row with water matrices
           ggarrange(sediment_SFEI_mesh_matrix, fish_SFEI_mesh_matrix,  ncol = 2, labels = c("B", "C")), #second row with additional matrices
           nrow = 2,
+          heights = c(1.4, 0.6),
           common.legend = TRUE,
           legend = "bottom",
           labels = c("A"))
@@ -2051,6 +2186,57 @@ ggsave(plot = boxplot,
        bg = "white",
        dpi = 300)
 ```
+## ANOVA between water matrices for alignment
+```{r}
+#easy cleanup
+alignment_matrix <- sfBay_aligned %>% 
+  filter(source == "SFEI") %>% 
+  filter(sample.matrix == "water") %>% 
+  filter(particle.L.master >0,
+         unaligned.particle.L.master > 0) %>% 
+  mutate(apparatus.matrix = paste0(sample.matrix.specific, " (", Sampling.apparatus,")")) %>% 
+  #filter(sample.matrix.specific == "surface water") %>% 
+  drop_na(particle.L.master) %>% 
+   dplyr::select(c(sampleID, unaligned.particle.L.master, particle.L.master,apparatus.matrix,
+                   #Sampling.apparatus, sample.matrix.specific
+                   )) %>% 
+  pivot_longer(-c(sampleID, apparatus.matrix,
+                  #Sampling.apparatus, sample.matrix.specific
+                  ), names_to = "alignment", values_to = "concentration") %>% 
+  #rename for easy plotting
+  mutate(alignment_pretty = case_when(alignment == "particle.L.master" ~ "Aligned",
+                                      alignment == "unaligned.particle.L.master" ~ "Unaligned"))
+
+# ANOVA
+ANOVA_pre.alignment <- aov(concentration ~ apparatus.matrix,
+                           data = alignment_matrix %>% filter(alignment_pretty == "Unaligned")) #only pre-aligned
+
+summary(ANOVA_pre.alignment)
+```
+```{r}
+tukey_pre <- TukeyHSD(ANOVA_pre.alignment)
+tukey_pre_data <- as.data.frame(tukey_pre$apparatus.matrix)
+write.csv(tukey_pre_data,
+          "output/data/tukey_pre_alignment.csv")
+
+tukey_pre
+```
+```{r}
+# ANOVA
+ANOVA_post.alignment <- aov(concentration ~ apparatus.matrix,
+                           data = alignment_matrix %>% filter(alignment_pretty == "Aligned")) #only pre-aligned
+
+summary(ANOVA_post.alignment)
+```
+```{r}
+tukey_post <- TukeyHSD(ANOVA_post.alignment)
+tukey_post_data <- as.data.frame(tukey_post$apparatus.matrix)
+write.csv(tukey_post_data,
+          "output/data/tukey_post_alignment.csv")
+
+tukey_post
+```
+
 
 # SFBay Exceedances
 ```{r}
@@ -2337,6 +2523,8 @@ ggsave(plot = sensitivity.figure,
 ```{r}
 #count samples
 surface.count <- sensitivity %>% 
+  filter(!str_detect(sampleID, "DUP")) %>% 
+  filter(!str_detect(sampleID, "blank")) %>% 
   filter(source == "SFEI") %>% 
   filter(sample.matrix.specific == "surface water") %>% 
   summarize(n())
@@ -2496,6 +2684,10 @@ ggsave(plot = sfBayECDF_sensitivity,
 ```{r}
 #count samples
 manta.count <- sfBay_aligned %>% 
+  filter(!str_detect(sampleID, "DUP")) %>% 
+  filter(!str_detect(sampleID, "blank")) %>% 
+   # remove non-bay samples
+  filter(!locationNew %in% c("National Marine Sanctuary")) %>% 
   filter(source == "SFEI") %>% 
   filter(sample.matrix.specific == "surface water") %>% 
   filter(Sampling.apparatus == "Manta Trawl") %>%
@@ -2503,6 +2695,8 @@ manta.count <- sfBay_aligned %>%
 
 
 sensitivity.analysis.manta_inter <- sfBay_aligned %>% 
+  filter(!str_detect(sampleID, "DUP")) %>% 
+  filter(!str_detect(sampleID, "blank")) %>% 
    # remove non-bay samples
   filter(!locationNew %in% c("National Marine Sanctuary")) %>% 
   filter(source == "SFEI") %>% 
@@ -2544,14 +2738,28 @@ sensitivity.analysis.manta <- sensitivity.analysis.manta_t2 %>%
          particle.L.master.25.percent = particle.L.master.25 / manta.count[1,],
          particle.L.master.50.percent = particle.L.master.50 / manta.count[1,],
          particle.L.master.75.percent = particle.L.master.75 / manta.count[1,],
-         particle.L.master.95.percent = particle.L.master.95 / manta.count[1,])
+         particle.L.master.95.percent = particle.L.master.95 / manta.count[1,]) %>% 
+  #pretty formatting
+  mutate(percentages = paste0( round(100 * particle.L.master.50.percent,0),
+                              "% (",
+                              round( 100 * particle.L.master.05.percent, 0),
+                              "% to ",
+                               round(100 * particle.L.master.95.percent, 0),
+                              "%)")) %>% 
+  #pretty formatting
+  mutate(numbers = paste0(round(particle.L.master.50),
+                              " (",
+                              round(particle.L.master.05, 2),
+                              " to ",
+                              round(particle.L.master.95, 2),
+                              ")"))
 
 sensitivity.analysis.manta
 ```
 
 ###### EXPORT EXCEEDANCES
 ```{r}
-write.csv(sensitivity.analysis.manta ,
+write.csv(sensitivity.analysis.manta,
           "output/data/surface_water_exceedances_sensitivity_analysis_manta.csv"
           )
 ```
@@ -2561,6 +2769,10 @@ write.csv(sensitivity.analysis.manta ,
 ```{r}
 #count samples
 manta.count <- sfBay_aligned %>% 
+  filter(!str_detect(sampleID, "DUP")) %>% 
+    filter(!str_detect(sampleID, "blank")) %>% 
+  # remove non-bay samples
+  filter(!locationNew %in% c("National Marine Sanctuary")) %>% 
   filter(source == "SFEI") %>% 
   filter(sample.matrix.specific == "surface water") %>% 
   filter(Sampling.apparatus == "Manta Trawl") %>%
@@ -2570,6 +2782,8 @@ manta.count <- sfBay_aligned %>%
 sensitivity.analysis.manta.oxidative_inter <- sfBay_aligned %>% 
    # remove non-bay samples
   filter(!locationNew %in% c("National Marine Sanctuary")) %>% 
+  filter(!str_detect(sampleID, "DUP")) %>% 
+    filter(!str_detect(sampleID, "blank")) %>% 
   filter(source == "SFEI") %>% 
   filter(sample.matrix.specific == "surface water") %>% 
   filter(Sampling.apparatus == "Manta Trawl") %>%
@@ -2606,7 +2820,21 @@ sensitivity.analysis.manta.oxidative <- sensitivity.analysis.manta.oxidative_t2 
 mutate_at(c(2:6), as.numeric) %>% 
   mutate(particle.L.master.50.percent = particle.L.master.50 / manta.count[1,],
          particle.L.master.05.percent = particle.L.master.05 / manta.count[1,],
-         particle.L.master.95.percent = particle.L.master.95 / manta.count[1,])
+         particle.L.master.95.percent = particle.L.master.95 / manta.count[1,]) %>% 
+    #pretty formatting
+  mutate(percentages = paste0( round(100 * particle.L.master.50.percent,0),
+                              "% (",
+                              round( 100 * particle.L.master.05.percent, 0),
+                              "% to ",
+                               round(100 * particle.L.master.95.percent, 0),
+                              "%)")) %>% 
+  #pretty formatting
+  mutate(numbers = paste0(round(particle.L.master.50),
+                              " (",
+                              round(particle.L.master.05, 2),
+                              " to ",
+                              round(particle.L.master.95, 2),
+                              ")"))
 
 sensitivity.analysis.manta.oxidative
 ```
@@ -2696,6 +2924,8 @@ ggsave(plot = bar_cdf,
 ```{r}
 #count samples
 manta.count.location <- sensitivity %>% 
+    filter(!str_detect(sampleID, "DUP")) %>% 
+    filter(!str_detect(sampleID, "blank")) %>% 
   filter(source == "SFEI") %>% 
   filter(sample.matrix.specific == "surface water") %>% 
   filter(Sampling.apparatus == "Manta Trawl") %>%
@@ -2707,6 +2937,10 @@ manta.count.location
 
 ```{r}
 sensitivity.analysis.location_inter <- sfBay_aligned %>% 
+  filter(!str_detect(sampleID, "DUP")) %>% 
+    filter(!str_detect(sampleID, "blank")) %>% 
+    # remove non-bay samples
+    #filter(!locationNew %in% c("National Marine Sanctuary")) %>% 
   #fix-up names to match probabilistic values
   dplyr::select(-Conc) %>% 
   rename(Conc = particle.L.master.50,
@@ -2771,6 +3005,8 @@ write.csv(sensitivity.analysis.location ,
 ```{r}
 #count samples
 manta.count.location <- sensitivity %>% 
+    filter(!str_detect(sampleID, "DUP")) %>% 
+    filter(!str_detect(sampleID, "blank")) %>% 
   filter(source == "SFEI") %>% 
   filter(sample.matrix.specific == "surface water") %>% 
   filter(Sampling.apparatus == "Manta Trawl") %>%
@@ -2782,6 +3018,8 @@ manta.count.location
 
 ```{r}
 sensitivity.analysis.location_inter <- sfBay_aligned %>% 
+    filter(!str_detect(sampleID, "DUP")) %>% 
+    filter(!str_detect(sampleID, "blank")) %>% 
   #fix-up names to match probabilistic values
   dplyr::select(-Conc) %>% 
   rename(Conc = particle.L.master.50,
@@ -2843,7 +3081,7 @@ write.csv(sensitivity.analysis.manta.location.oxidative ,
 
 ```{r}
 #ECDF by System
-sfBayECDF_sensitivity <- sensitivity %>% 
+sfBayECDF_sensitivity_grab_manta <- sensitivity %>% 
   filter(source == "SFEI") %>% 
   filter(sample.matrix.specific == "surface water") %>% 
   filter(particle.L.master > 0) %>% 
@@ -2908,13 +3146,17 @@ sfBayECDF_sensitivity <- sensitivity %>%
    #    subtitle = paste("Particles/L corrected to:",x1D_set, "to", x2D_set, "um"),
     #   caption = paste("Concentration data from Adams et al (2019): 23 studies, 57 sampling locations, n = 377; corrected for size ranges. Alpha = ",alpha))
  
-sfBayECDF_sensitivity
+sfBayECDF_sensitivity_grab_manta
 ```
 ##### Wet Vs Dry
 
 ```{r}
 #ECDF by System
 sfBayECDF_wetDry <- sfBay_new %>% 
+  filter(!str_detect(sampleID, "DUP")) %>% 
+    filter(!str_detect(sampleID, "blank")) %>% 
+    # remove non-bay samples
+    filter(!locationNew %in% c("National Marine Sanctuary")) %>% 
   filter(source == "SFEI") %>% 
   filter(particle.L.master > 0) %>% 
   filter(sample.matrix.specific == "surface water",
@@ -2960,6 +3202,268 @@ ggsave(plot = sfBayECDF_wetDry,
        filename = "sfBayECDF_wetDry.jpeg",
        path = "output/figures/", 
        width = 10, height = 6, units = "in",
+       bg = "white",
+       dpi = 300)
+```
+
+```{r}
+sensitivity.analysis.manta_season <- sfBay_aligned %>% 
+   # remove non-bay samples
+  filter(!locationNew %in% c("National Marine Sanctuary")) %>% 
+  filter(source == "SFEI") %>% 
+  filter(sample.matrix.specific == "surface water") %>% 
+  filter(Sampling.apparatus == "Manta Trawl") %>%
+  #just select concentrations
+  dplyr::select(c(particle.L.master.50,
+                  particle.L.master.05,
+                  particle.L.master.95,
+                  particle.L.master.25,
+                  particle.L.master.75,
+                  season
+                  )) %>% 
+  #make long data
+  pivot_longer(cols = starts_with("particle"),
+               names_to = "confidence", 
+               values_to = "conc") %>% 
+  #mutate(alignment = factor(alignment)) %>% 
+  group_by(season, confidence) %>% 
+  summarize(n = n(),
+            belowThreshold1 = sum(conc < Threshold1_food),
+            aboveThreshold1 = sum(conc > Threshold1_food),
+            aboveThreshold2 = sum(conc > Threshold2_food),
+            aboveThreshold3 = sum(conc > Threshold3_food),
+            aboveThreshold4 = sum(conc > Threshold4_food)) %>% 
+  #percentages
+  mutate(belowThreshold1_percent = belowThreshold1 / n,
+         aboveThreshold2_percent = aboveThreshold2 / n,
+         aboveThreshold3_percent = aboveThreshold3 / n,
+         aboveThreshold4_percent = aboveThreshold4 / n)
+write.csv(sensitivity.analysis.manta_season,
+          "output/data/sensitivity_analysis_manta_season.csv")
+
+sensitivity.analysis.manta_season
+```
+## Comparison to other studies
+```{r}
+ sfBay_aligned %>% 
+   # remove non-bay samples
+  filter(!locationNew %in% c("National Marine Sanctuary")) %>% 
+  filter(source == "SFEI") %>% 
+  filter(sample.matrix.specific == "surface water") %>% 
+  filter(Sampling.apparatus == "Manta Trawl") %>%
+  #just select concentrations
+  dplyr::select(c(particle.L.master.50,
+                  particle.L.master.05,
+                  particle.L.master.95,
+                  particle.L.master.25,
+                  particle.L.master.75,
+                  season
+                  )) %>% 
+  #make long data
+  pivot_longer(cols = starts_with("particle"),
+               names_to = "confidence", 
+               values_to = "conc") %>% 
+  #mutate(alignment = factor(alignment)) %>% 
+  group_by(confidence) %>% 
+  summarize(n = n(),
+            above50 = sum(conc > 50), #values from Everaert et al (2020)
+            above0.255 = sum(conc > 0.255),
+            above56 = sum(conc > 56),
+            above1e6 = sum(conc > 1E-6),
+            above0.0679 = sum(conc > 0.0679)) %>% 
+  mutate(above50_percent = above50 / n,
+         above0.255_percent = above0.255 / n,
+         above56_percent = above56 / n,
+         above1e6_percent = above1e6 / n,
+         above0.0679_percent = above0.0679 / n) 
+```
+
+
+## No Fiber Correction
+```{r}
+#ECDF by System
+sfBayECDF_sensitivity.noFiberCorrection <- sfBay_aligned %>% 
+  # remove non-bay samples
+  filter(!locationNew %in% c("National Marine Sanctuary")) %>% 
+  filter(source == "SFEI") %>% 
+  filter(sample.matrix.specific == "surface water") %>% 
+  filter(Sampling.apparatus == "Manta Trawl") %>% 
+  filter(particle.L.master > 0) %>% 
+  #just select concentrations
+  #dplyr::select(c(Conc, conc.combined.upper.95, conc.combined.lower.95)) %>% 
+  dplyr::select(c(particle.L.master.50.noFiberCorrection,
+                  particle.L.master.05.noFiberCorrection,
+                  particle.L.master.95.noFiberCorrection,
+                  particle.L.master.25.noFiberCorrection,
+                  particle.L.master.75.noFiberCorrection)) %>% 
+  #make long data
+  pivot_longer(everything()) %>% 
+  mutate(name = as.factor(name)) %>% 
+  mutate(percentile = case_when(grepl("50", name) ~ "50th Percentile",
+                                grepl("95", name) ~ "95th Percentile",
+                                grepl("25", name) ~ "25th Percentile",
+                                grepl("05", name) ~ "5th Percentile",
+                                grepl("75", name) ~ "75th Percentile",
+                                name == "Conc" ~ "Mean")) %>% 
+  ggplot() +
+ # stat_ecdf(aes(x = value, color = name),
+  #          geom = "point", size = 1, alpha = 0.5) +
+  stat_ecdf(aes(x = value, color = percentile),geom = "step", linetype = 'solid', alpha = 1, size = 1) +
+  #color
+  scale_color_manual(name = "Probabilistic Uncertainty",
+                     values = c("5th Percentile" = "#8cd3ff",
+                                "25th Percentile" = "#05619c",
+                                "50th Percentile" = "#012740",
+                                "75th Percentile" = "#05619c",
+                                "95th Percentile" = "#8cd3ff"
+                              ),
+                     labels = c("5th Percentile",
+                                "25th Percentile",
+                                "50th Percentile",
+                                "75th Percentile",
+                                "95th Percentile"
+                                )) +
+  # ##Food Dilution thresholds #
+   geom_vline(xintercept = Threshold1_food, linetype = 'dashed', color = "#fcc523", size = 1.5) +
+   geom_text(label = "Threshold One", color = "#fcc523" , x = Threshold1_food, y = 0.10, size = 6)+
+  geom_vline(xintercept = Threshold2_food, linetype = 'dashed', color = "#bf8345", size = 1.5) +
+  geom_text(label = "Threshold Two", color = "#bf8345" , x = Threshold2_food, y = 0.20, size = 6)+
+   geom_vline(xintercept = Threshold3_food, linetype = 'dashed', color = "#e06665", size = 1.5) +
+   geom_text(label = "Threshold Three", color = "#e06665" , x = Threshold3_food, y = 0.30, size = 6)+
+   geom_vline(xintercept = Threshold4_food, linetype = 'dashed', color = "#ac5784", size = 1.5) +
+  geom_text(label = "Threshold Four", color = "#ac5784",  x = Threshold4_food, y = 0.40, size = 6)+
+    ylab("Cumulative Density") +
+  xlab("Surface Water Particles/L (aligned to 1 to 5,000 µm)") +
+  #xlab(paste0("Particles/L (" ,x1D_set, " to ", x2D_set, "um)"))+
+  scale_y_continuous(labels = scales::percent)+
+  coord_trans(x = "log10") +
+  scale_x_continuous(#breaks = scales::trans_breaks("log10", function(x) 10^x,n = 10),
+                     breaks = c(0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10, 50, 100),
+                     labels = comma_signif,
+                     limits = c(1e-3,100))+
+  annotation_logticks(scaled = FALSE)+ #log scale rick marks on bottom
+  theme.type +
+  theme(legend.title = element_blank(),
+        legend.position = c(0.1,0.6),
+        legend.key.size = unit(0.6, 'cm'))
+ 
+sfBayECDF_sensitivity.noFiberCorrection
+```
+
+```{r}
+sensitivity.analysis.manta_inter.noFiberCorrection <- sfBay_aligned %>% 
+   # remove non-bay samples
+  filter(!locationNew %in% c("National Marine Sanctuary")) %>% 
+  filter(source == "SFEI") %>% 
+  filter(sample.matrix.specific == "surface water") %>% 
+  filter(Sampling.apparatus == "Manta Trawl") %>%
+  #just select concentrations
+  dplyr::select(c(particle.L.master.50.noFiberCorrection,
+                  particle.L.master.05.noFiberCorrection,
+                  particle.L.master.95.noFiberCorrection,
+                  particle.L.master.25.noFiberCorrection,
+                  particle.L.master.75.noFiberCorrection
+                  )) %>% 
+  #make long data
+  pivot_longer(everything(),names_to = "alignment", values_to = "conc") %>% 
+  #mutate(alignment = factor(alignment)) %>% 
+  group_by(alignment) %>% 
+  summarize(n = n(),
+            belowThreshold1 = sum(conc < Threshold1_food),
+            aboveThreshold1 = sum(conc > Threshold1_food),
+            aboveThreshold2 = sum(conc > Threshold2_food),
+            aboveThreshold3 = sum(conc > Threshold3_food),
+            aboveThreshold4 = sum(conc > Threshold4_food))
+
+  #transpose
+t_sensitivity.analysis.manta.noFiberCorrection <- data.table::transpose(sensitivity.analysis.manta_inter.noFiberCorrection)
+# get row and colnames in order
+colnames(t_sensitivity.analysis.manta.noFiberCorrection) <- rownames(sensitivity.analysis.manta_inter.noFiberCorrection)
+rownames(t_sensitivity.analysis.manta.noFiberCorrection) <- colnames(sensitivity.analysis.manta_inter.noFiberCorrection)
+
+t_2.noFiberCorrection <- t_sensitivity.analysis.manta.noFiberCorrection %>% janitor::row_to_names(row_number = 1)
+rownames(t_2.noFiberCorrection) <- colnames(sensitivity.analysis.manta_inter.noFiberCorrection[-1])
+
+sensitivity.analysis.manta_t2.noFiberCorrection <- t_2.noFiberCorrection %>% tibble::rownames_to_column("aboveThreshold")
+
+sensitivity.analysis.manta.noFiberCorrection <- sensitivity.analysis.manta_t2.noFiberCorrection %>% 
+  filter(!aboveThreshold == "n") %>% 
+  mutate_at(c(2:6), as.numeric) %>% 
+  mutate(particle.L.master.05.percent = particle.L.master.05.noFiberCorrection / manta.count[1,],
+         particle.L.master.25.percent = particle.L.master.25.noFiberCorrection / manta.count[1,],
+         particle.L.master.50.percent = particle.L.master.50.noFiberCorrection / manta.count[1,],
+         particle.L.master.75.percent = particle.L.master.75.noFiberCorrection / manta.count[1,],
+         particle.L.master.95.percent = particle.L.master.95.noFiberCorrection / manta.count[1,])
+
+sensitivity.analysis.manta.noFiberCorrection
+```
+##### Bar Plots
+```{r}
+barplot.noFiberCorrection <- sensitivity.analysis.manta.noFiberCorrection %>% 
+  # replace_na(list(rel.freq_Conc = 0,
+  #                 rel.freq_conc.lower.95 = 0,
+  #                 rel.freq_conc.upper.95 = 0)) %>% 
+  mutate(frequency = as.numeric(particle.L.master.50.percent)) %>% 
+  mutate(frequency_lower = as.numeric(particle.L.master.05.percent)) %>%
+  mutate(frequency.25 = as.numeric(particle.L.master.25.percent)) %>% 
+  mutate(frequency.75 = as.numeric(particle.L.master.75.percent)) %>% 
+  mutate(frequency_upper = as.numeric(particle.L.master.95.percent)) %>% 
+  mutate(threshold = case_when(aboveThreshold == "belowThreshold1" ~ "< Threshold One",
+                               aboveThreshold == "aboveThreshold1" ~ "> Threshold One",
+                               aboveThreshold == "aboveThreshold2" ~ "> Threshold Two",
+                               aboveThreshold == "aboveThreshold3" ~ "> Threshold Three",
+                               aboveThreshold == "aboveThreshold4" ~ "> Threshold Four")) %>% 
+  ggplot(aes(x = factor(threshold, level = c("< Threshold One",
+                                             "> Threshold One",
+                                             "> Threshold Two",
+                                             "> Threshold Three",
+                                             "> Threshold Four")))) +
+  geom_col(aes(y = frequency, fill = threshold)) +
+  #95th
+  geom_errorbar(aes(ymin = frequency_lower, ymax = frequency_upper),
+                linetype = "dashed", width = 1.0, alpha = 0.7) +
+  #25th and 75th percetnile
+  geom_errorbar(aes(ymin = frequency.25, ymax = frequency.75),
+                linetype = "solid", width = 0.5, alpha = 1) +
+  scale_y_continuous(limits = c(0,1),
+                     labels = scales::percent) +
+  scale_fill_manual(values = c("< Threshold One" = "#b6d7a8", #green
+                                "> Threshold One" = "#fcc523", #yellow
+                               "> Threshold Two" = "#bf8345", #orange
+                                "> Threshold Three" = "#e06665", # red
+                               "> Threshold Four" = "#ac5784" #purple
+                               )) +
+
+  coord_flip() +
+  ylab("Percentage of Samples Exceeding Threshold") +
+  theme.type +
+  theme(axis.title.y = element_blank(),
+        axis.text.y = element_text(color = c("#90ab85", #green
+                               "#fcc523", #yellow
+                               "#bf8345", #orange
+                                "#e06665", # red
+                               "#ac5784" #purple
+                               ),
+                               face = "bold",
+                               size = 18),
+        legend.position = "none"
+        )
+
+barplot.noFiberCorrection
+```
+
+###### ARRANGE
+```{r}
+bar_cdf.noFiberCorrection <- ggarrange(barplot.noFiberCorrection, sfBayECDF_sensitivity.noFiberCorrection,
+          nrow = 2,
+          labels = c("A", "B"))
+
+bar_cdf.noFiberCorrection
+
+ggsave(plot = bar_cdf.noFiberCorrection,
+       filename = "bar_cdf_noFiberCorrection.jpeg",
+       path = "output/figures/", 
+       width = 10, height = , units = "in",
        bg = "white",
        dpi = 300)
 ```
