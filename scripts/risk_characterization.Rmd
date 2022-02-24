@@ -3762,13 +3762,15 @@ library(rnaturalearth)
 library(GSODR)
 library(cowplot)
 library(mapview)      # interactive maps!
+library(ggspatial)
+
 mapviewOptions(fgb = FALSE)
 ```
 ## Basemap
-```{r}
+```{r eval=FALSE, include=FALSE}
 # get USA states, filter out Puerto Rico, Alaska, and Hawaii for now
-us <- USAboundaries::us_boundaries(type = "state", resolution = "low") %>% 
-  filter(!state_abbr %in% c("PR", "AK", "HI"))
+#us <- USAboundaries::us_boundaries(type = "state", resolution = "low") %>% 
+ # filter(!state_abbr %in% c("PR", "AK", "HI"))
 
 # get CA boundary with high definition
 ca <- USAboundaries::us_states(resolution = "high", states = "CA")
@@ -3789,7 +3791,7 @@ ca_co <- USAboundaries::us_counties(resolution = "high", states = "CA")
 # make sure we have all the pieces with a quick test plot
 # check they all have same crs:
 library(purrr)
-map(list(us, ca, ca_co), ~st_crs(.x)$epsg)
+map(list(ca, ca_co), ~st_crs(.x)$epsg)
 
 # make a map
 #plot(us$geometry) # every time this will make a fresh map
@@ -3800,6 +3802,73 @@ plot(ca_box, add = TRUE, border = "red3", col = NA, lwd = 2)
 
 ## Data Prep
 ```{r}
+#TEST
+test <- data.frame(id = "ID20",
+                   conc = 20,
+                   latitude = 38.75438,
+                   longitude = -120.57834)
 
+test_2 <- test %>% 
+  st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
+
+st_crs(test_2)
+mapview(test_2)
+
+
+# get CA county boundary
+ca_co <- USAboundaries::us_counties(resolution = "high", states = "CA")
+
+# convert point data
+spatial_risk <- sfBay_aligned %>% 
+  filter(Sampling.apparatus == "Manta Trawl") %>% 
+  drop_na(c(particle.L.master.50, latitude, longitude)) %>% 
+  filter(particle.L.master.50 < 100) %>% 
+  mutate(longitude_num = as.numeric(as.character(longitude)),
+         latitude_num = as.numeric(as.character(latitude))) %>% 
+  drop_na(c(latitude_num, longitude_num)) %>% 
+  st_as_sf(coords = c("longitude_num", "latitude_num"), 
+           crs = 4326) #%>%  # California Albers
+  #st_transform(crs = 3310)
+#inspect
+st_crs(spatial_risk)
+st_crs(ca_co) # need to transform to CA Albers
+
+mapview(spatial_risk, zcol="particle.L.master.50") # this may take a minute because of duplication
+```
+
+```{r}
+
+sf <- ca_co %>% 
+  filter(name %in% c("San Francisco", "Alameda", "Contra Costa", "San Mateo", "Solano", "Marin", "Sonoma", "Napa", "Santa Clara"))
+
+#let's map shapefiles in ggplot!
+risk_smc <- ggplot()+
+  geom_sf(data = sf) +
+  geom_sf(data = #sfBay_aligned, 
+          spatial_risk,
+          aes(color = particle.L.master.50), alpha = 0.7,
+          size = 5)+
+  labs(color = "Concentration")+
+  scale_color_viridis_c(option = "viridis") +#good for continuous data
+  annotation_scale(location = "bl") + #add scale
+  annotation_north_arrow(location = "bl", #north arrow
+                         pad_x =  unit(0.5, "in"), pad_y = unit(0.5, "in"), #shift it so it doesn't plot on top of scale bar
+                         style = north_arrow_fancy_orienteering()) + #change style of north arrow
+  xlab("Longitude (NAD83)") +
+  ylab("Latitude") +
+  ggtitle("Microplastics Concentrations in San Francisco Bay") +
+  #coord_sf(xlim = c(), ylim = c()) #range of plot to be included
+  theme_bw()
+risk_smc
+```
+
+```{r}
+library(maps); library(ggplot2); library(mapproj)
+states <- map_data("state")
+usamap <- ggplot(states, aes(x=long, y=lat, group=group)) +
+ geom_polygon(fill="white", colour="black")+ coord_map("mercator")
+
+usamap +
+  geom_point(data = spatial_risk, aes(x = longitude, y = latitude, group = particle.L.master.50))
 ```
 
