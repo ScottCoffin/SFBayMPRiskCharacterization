@@ -49,8 +49,10 @@ library(msm)
 ```
 
 # Hazard Concentration and Alignment Parameters
-CF sd's based on https://nicoco007.github.io/Propagation-of-Uncertainty-Calculator/ 
+<!-- CF sd's based on https://nicoco007.github.io/Propagation-of-Uncertainty-Calculator/  -->
 ```{r}
+set.seed(1234) #reproducibility
+
 ###### Choose concentration alignment parameters####
 alpha.stormwater <- 1.87
 alpha.stormwater.sd <- 0.13
@@ -1949,6 +1951,9 @@ $CF_{Meas} = \frac{L^{1-a}_{UL,D} - L^{1-a}_{LL,D}}{L^{1-a}_{UL,M} - L^{1-a}_{LL
 
 # correct aquatic concentrations for SF Bay
 sfBay_aligned <- sfBay3 %>% 
+  #remove duplicate rows
+  distinct(sampleID, .keep_all = TRUE) %>% 
+  #filter
   filter(!grepl("blank", sampleID)) %>% #remove blanks
   mutate(CF = case_when(
     sample.matrix.specific == "surface water" ~ CFfnx(a = alpha.marine, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
@@ -2284,8 +2289,8 @@ probability_distributions.Rmd determines the size power law for marine surface w
 
 ##### Align
 
-https://nicoco007.github.io/Propagation-of-Uncertainty-Calculator/  is used to derive propoagation of uncertaint equation for Alpha
-```{r}
+<!-- https://nicoco007.github.io/Propagation-of-Uncertainty-Calculator/  is used to derive propoagation of uncertaint equation for Alpha -->
+```{r include=FALSE}
 # used online calculator to derive correction factor SD for correction factor for 333 um mesh aligned to 1 to 5,000micron for alpha sd of 0.15
 #result: 300.5
 CF.1Lgrab.sd <- 29.3
@@ -3763,106 +3768,194 @@ library(GSODR)
 library(cowplot)
 library(mapview)      # interactive maps!
 library(ggspatial)
+library(basemaps)
+library(mapedit)
 
 mapviewOptions(fgb = FALSE)
 ```
 ## Basemap
 ```{r eval=FALSE, include=FALSE}
-# get USA states, filter out Puerto Rico, Alaska, and Hawaii for now
-#us <- USAboundaries::us_boundaries(type = "state", resolution = "low") %>% 
- # filter(!state_abbr %in% c("PR", "AK", "HI"))
+# view all available maps
+get_maptypes()
 
-# get CA boundary with high definition
-ca <- USAboundaries::us_states(resolution = "high", states = "CA")
+#draw extent
+#ext <- draw_ext()
 
-# make a box around CA (a grid with an n=1) for inset
-ca_box <- st_make_grid(ca, n = 1)
+# set defaults for the basemap
+set_defaults(map_service = "esri", map_type = "world_terrain_base")
 
-# get crs
-st_crs(ca_box)$epsg
-
-# get CA county boundary
-ca_co <- USAboundaries::us_counties(resolution = "high", states = "CA")
-
-# mapview(ca_box) # quick check that it worked
-# mapview of two obj
-# mapview(ca_box) + mapview(ca)
-
-# make sure we have all the pieces with a quick test plot
-# check they all have same crs:
-library(purrr)
-map(list(ca, ca_co), ~st_crs(.x)$epsg)
-
-# make a map
-#plot(us$geometry) # every time this will make a fresh map
-plot(ca$geometry, add = TRUE, col = "gray50", border = "maroon")
-plot(ca_co$geometry, add = TRUE, border = "pink", col = NA)
-plot(ca_box, add = TRUE, border = "red3", col = NA, lwd = 2)
+basemap_plot(ext)
 ```
+```{r eval=FALSE, include=FALSE}
+basemap_mapview(ext)
+```
+
 
 ## Data Prep
 ```{r}
-#TEST
-test <- data.frame(id = "ID20",
-                   conc = 20,
-                   latitude = 38.75438,
-                   longitude = -120.57834)
-
-test_2 <- test %>% 
-  st_as_sf(coords = c("longitude", "latitude"), crs = 4326)
-
-st_crs(test_2)
-mapview(test_2)
-
-
 # get CA county boundary
 ca_co <- USAboundaries::us_counties(resolution = "high", states = "CA")
 
 # convert point data
 spatial_risk <- sfBay_aligned %>% 
+  filter(!sampleID == "CB9 Jan 11 Total") %>% 
   filter(Sampling.apparatus == "Manta Trawl") %>% 
   drop_na(c(particle.L.master.50, latitude, longitude)) %>% 
-  filter(particle.L.master.50 < 100) %>% 
+   mutate(latitude = case_when(
+    sampleID == "SPB3 Aug 21" ~ 38.03, #probably a typo...
+    TRUE ~ as.numeric(as.character(latitude))
+  )) %>%
   mutate(longitude_num = as.numeric(as.character(longitude)),
          latitude_num = as.numeric(as.character(latitude))) %>% 
   drop_na(c(latitude_num, longitude_num)) %>% 
+  droplevels() %>% 
   st_as_sf(coords = c("longitude_num", "latitude_num"), 
-           crs = 4326) #%>%  # California Albers
-  #st_transform(crs = 3310)
+           crs = 4326) # WGS 84
+
 #inspect
 st_crs(spatial_risk)
 st_crs(ca_co) # need to transform to CA Albers
-
-mapview(spatial_risk, zcol="particle.L.master.50") # this may take a minute because of duplication
 ```
 
-```{r}
 
+
+```{r include=FALSE}
+spatial_risk_thresholds <- spatial_risk %>% 
+  mutate(threshold = case_when(particle.L.master.50 < Threshold1 ~ "< One",
+    particle.L.master.50 >= Threshold1 & particle.L.master.50 < Threshold2 ~ "> One",
+    particle.L.master.50 >= Threshold2 & particle.L.master.50 < Threshold3 ~ "> Two",
+    particle.L.master.50 >= Threshold3 & particle.L.master.50 < Threshold4 ~ "> Three",
+    particle.L.master.50 >= Threshold4 ~ "> Four"))
+  
+#color prep
+color_scale <- c("< One" = "#b6d7a8", #green
+                "> One" = "#fcc523", #yellow
+                "> Two" = "#bf8345", #orange
+                "> Three" = "#e06665", # red
+                "> Four" = "#ac5784") #purple
+
+shape_scale <- c("< One" = 21, #circle
+                "> One" = 22, #square
+                "> Two" = 23, #diamond
+                "> Three" = 24, # upside triangle
+                "> Four" = 25) #triangle
+
+#get county outline
 sf <- ca_co %>% 
   filter(name %in% c("San Francisco", "Alameda", "Contra Costa", "San Mateo", "Solano", "Marin", "Sonoma", "Napa", "Santa Clara"))
 
-#let's map shapefiles in ggplot!
-risk_smc <- ggplot()+
-  geom_sf(data = sf) +
-  geom_sf(data = #sfBay_aligned, 
-          spatial_risk,
-          aes(color = particle.L.master.50), alpha = 0.7,
-          size = 5)+
-  labs(color = "Concentration")+
-  scale_color_viridis_c(option = "viridis") +#good for continuous data
+spatial_risk_thresholds$threshold
+```
+
+##Interactive Map
+```{r}
+mapping_data <- spatial_risk_thresholds %>% 
+  dplyr::select(c(sampleID,
+                  Sampling.location,
+                  season,
+                  particle.L.master.05,
+                  particle.L.master.50,
+                  particle.L.master.95,
+                  threshold
+                  ))
+
+interactive <- mapview(mapping_data, zcol="threshold") # this may take a minute because of duplication
+#tmlwidgets::saveWidget(widget = interactive, file = "output/map.html", selfcontained = T)
+interactive
+```
+
+
+
+## Basemap with ggmap
+```{r include=FALSE}
+library(ggmap)
+#register with googlemaps
+#register_google(key = "AIzaSyBiSSZoq5zG-cY-SLbofYpns4bhXcsjkQQ", write= TRUE)
+
+#SF basemap
+sf_basemap <- get_map(location = c(lon = -122.352541, lat = 37.838441), zoom = 9, maptype = 'terrain-background', source = 'stamen')
+ggmap(sf_basemap)
+
+sf_basemap_watercolor <- get_map(location = c(lon = -122.352541, lat = 37.838441), zoom = 9, maptype = 'watercolor', source = 'stamen')
+ggmap(sf_basemap_watercolor)
+
+sf_basemap_terrain_bw <- get_map(location = c(lon = -122.352541, lat = 37.838441), zoom = 9, maptype = 'terrain-background', source = 'google', color = "bw")
+ggmap(sf_basemap_terrain_bw)
+```
+## Ggplot
+```{r}
+## assign labels ##
+labels <- data.frame(name = c("San \n Francisco \n Bay",
+                              "San \n Pablo \n Bay",
+                              "Drakes \n Bay",
+                              "Gulf \n of the \n Farallones"),
+                     lat = c(37.65, #SF Bay
+                                  38.058, #San Pablo Bay
+                                  37.987,
+                                  37.77 #Gulf of the Farallones
+                     ),
+                     long = c(-122.286, #SF Bay
+                                   -122.387, #San Pablo Bay
+                                   -122.899, #drakes bay
+                                   -122.925 #Gulf of the Farallones
+                                   ))
+labels <- labels %>% 
+  st_as_sf(coords = c("long", "lat"), 
+           crs = 4326)
+```
+
+```{r}
+# add points
+risk_smc <- ggmap(sf_basemap) + 
+ 
+#geom_sf(data = sf)# +
+   geom_sf(data = #sfBay_aligned, 
+           spatial_risk_thresholds,
+           aes(#color = threshold, 
+               fill= threshold,
+               shape = threshold), alpha = 0.65,
+           size = 4,
+           inherit.aes = FALSE,
+           #shape = 21,
+           color = "gray40") +
+  coord_sf(crs = st_crs(4326)) +
+  scale_color_manual(name = "Threshold", values = color_scale) +
+  scale_fill_manual(name = "Threshold", values = color_scale) +
+  scale_shape_manual(name = "Threshold", values = shape_scale) +
+   #add labels for bay
+  geom_sf_text(aes(label = name),
+                data = labels,
+                inherit.aes = FALSE,
+               color = "gray10",
+               fontface = "italic") +
   annotation_scale(location = "bl") + #add scale
   annotation_north_arrow(location = "bl", #north arrow
                          pad_x =  unit(0.5, "in"), pad_y = unit(0.5, "in"), #shift it so it doesn't plot on top of scale bar
                          style = north_arrow_fancy_orienteering()) + #change style of north arrow
+  labs(legend = "Threshold") +
   xlab("Longitude (NAD83)") +
-  ylab("Latitude") +
-  ggtitle("Microplastics Concentrations in San Francisco Bay") +
-  #coord_sf(xlim = c(), ylim = c()) #range of plot to be included
-  theme_bw()
+  ylab("Latitude (NAD83)") +
+  #ggtitle("Microplastics Risk Exceedances in San Francisco Bay") +
+  theme.type +
+  theme(
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.position = c(0.85, 0.87),
+        legend.key.size = unit(0.5, 'cm'))
+
+ggsave(plot = risk_smc,
+       filename = "risk_smc.jpeg",
+       path = "output/figures/", 
+       width = 9, height = 8, units = "in",
+       bg = "white",
+       dpi = 300)
+
+#plot
 risk_smc
 ```
 
-```{r}
+
+
+```{r eval=FALSE, include=FALSE}
 library(maps); library(ggplot2); library(mapproj)
 states <- map_data("state")
 usamap <- ggplot(states, aes(x=long, y=lat, group=group)) +
