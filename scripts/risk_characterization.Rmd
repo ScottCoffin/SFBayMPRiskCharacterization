@@ -444,9 +444,10 @@ particle.data.clean <- particle.data %>%
     grepl("NMS", SampleID,ignore.case = FALSE) ~ "National Marine Sanctuary",
     grepl("TB", SampleID,ignore.case = FALSE) ~ "Tomales Bay",
     grepl("SC", SampleID,ignore.case = FALSE) ~ "general",
-    grepl("SUB", SampleID,ignore.case = FALSE) ~ "general",
+    grepl("SUB", SampleID,ignore.case = FALSE) ~ "Suisin Bay",
     grepl("SOSL", SampleID,ignore.case = FALSE) ~ "general",
-    grepl("SPB", SampleID,ignore.case = FALSE) ~ "general",
+    grepl("Treasure", SampleID,ignore.case = FALSE) ~ "Central Bay",
+    grepl("SPB", SampleID,ignore.case = FALSE) ~ "San Pablo Bay",
   )) %>% 
   replace_na(list(site = "general")) %>% 
   droplevels()
@@ -1486,10 +1487,10 @@ sfBay2_recode <- sfBay2 %>%
     general.location == "Lower South Bay" ~ "Lower South Bay",
     general.location == "National Marine Sancturay" ~ "National Marine Sanctuary",
     general.location == "Tomales Bay" ~ "Tomales Bay",
-    general.location == "Treasure Island" ~ "general",
-    general.location == "SPB" ~ "general",
+    general.location == "Treasure Island" ~ "Central Bay",
+    general.location == "SPB" ~ "San Pablo Bay",
     general.location == "SC" ~ "general",
-    general.location == "SUB" ~ "general",
+    general.location == "SUB" ~ "Susiun Bay",
     general.location == "SOSL" ~ "general")) %>% 
   #cleanup
   replace_na(list(locationNew = "general")) %>% 
@@ -2036,8 +2037,8 @@ water_SFEI_mesh_matrix <- sfBay_aligned %>%
                   #Sampling.apparatus, sample.matrix.specific
                   ), names_to = "alignment", values_to = "concentration") %>% 
   #rename for easy plotting
-  mutate(alignment_pretty = case_when(alignment == "particle.L.master" ~ "Aligned",
-                                      alignment == "unaligned.particle.L.master" ~ "Unaligned")) %>% 
+  mutate(alignment_pretty = case_when(alignment == "particle.L.master" ~ "Recaled & Corrected",
+                                      alignment == "unaligned.particle.L.master" ~ "Unadjusted")) %>% 
 ## PLOTTING ##
   ggplot(aes(y = concentration, x =factor(apparatus.matrix, level = c('surface water (Manta Trawl)',
                                                                       'surface water (1-L grab)',
@@ -2051,7 +2052,7 @@ water_SFEI_mesh_matrix <- sfBay_aligned %>%
  
   scale_color_manual(name = "Alignment",
                      values = hcl(c(0, 240),100,65, alpha=c(1,0.6)),
-                     labels = c("Aligned (1 to 5,000 μm)",
+                     labels = c("Corrected & Rescaled (1 to 5,000 μm)",
                                 "Unaligned")) +
     scale_y_log10(breaks = scales::log_breaks(n = 12),labels = comma_signif,
                    limits = c(1e-6, 10000))+
@@ -2098,7 +2099,7 @@ sediment_SFEI_mesh_matrix <- sfBay_aligned %>%
   
   scale_color_manual(name = "Alignment",
                      values = hcl(c(0, 240),100,65, alpha=c(1,0.6)),
-                     labels = c("Aligned (1 to 5,000 μm)",
+                     labels = c("Corrected & Rescaled (1 to 5,000 μm)",
                                 "Unaligned")) +
     scale_y_log10(breaks = scales::log_breaks(n = 5),labels = comma_signif,
                    limits = c(1, 10000))+
@@ -2146,7 +2147,7 @@ fish_SFEI_mesh_matrix <- sfBay_aligned %>%
   
   scale_color_manual(name = "Alignment",
                      values = hcl(c(0, 240),100,65, alpha=c(1,0.6)),
-                     labels = c("Aligned (1 to 5,000 μm)",
+                     labels = c("Corrected & Rescaled (1 to 5,000 μm)",
                                 "Unaligned")) +
     scale_y_log10(breaks = scales::log_breaks(n = 5),labels = comma_signif,
                    limits = c(1, 1000))+
@@ -3735,7 +3736,7 @@ violin_matrix
 ```{r}
 
 sfBay_aligned %>% 
-  filter(!sampleID == "CB9 Jan 11 Total") %>% 
+  #filter(!sampleID == "CB9 Jan 11 Total") %>% 
   filter(!Sampling.apparatus == "1-L grab") %>% 
   mutate(scaled.particle.L.master = scale(particle.L.master),
          scaled.fish.master = scale(particle.fish.master),
@@ -3797,14 +3798,37 @@ basemap_mapview(ext)
 ca_co <- USAboundaries::us_counties(resolution = "high", states = "CA")
 
 # convert point data
-spatial_risk <- sfBay_aligned %>% 
-  filter(!sampleID == "CB9 Jan 11 Total") %>% 
+spatial_risk_thresholds <- sfBay_aligned %>% 
+    mutate(threshold = case_when(particle.L.master.50 < Threshold1_food ~ "< One",
+    particle.L.master.50 >= Threshold1_food & particle.L.master.50 < Threshold2_food ~ "> One",
+    particle.L.master.50 >= Threshold2_food & particle.L.master.50 < Threshold3_food ~ "> Two",
+    particle.L.master.50 >= Threshold3_food & particle.L.master.50 < Threshold4_food ~ "> Three",
+    particle.L.master.50 >= Threshold4_food ~ "> Four")) %>% 
+  #filter(!sampleID == "CB9 Jan 11 Total") %>% 
   filter(Sampling.apparatus == "Manta Trawl") %>% 
-  drop_na(c(particle.L.master.50, latitude, longitude)) %>% 
+  filter(!str_detect(sampleID, "DUP")) %>% 
+  filter(!str_detect(sampleID, "blank")) %>% 
+  #drop_na(c(particle.L.master.50, latitude, longitude)) %>% 
    mutate(latitude = case_when(
     sampleID == "SPB3 Aug 21" ~ 38.03, #probably a typo...
+    sampleID == "GFNMS24 Mar 29" ~ 37.976, #missing tag
+    sampleID == "GFNMS25 Mar 30" ~ 37.962, #separate these points a little for viz
+    sampleID == "MBNMS30 Mar 31" ~ 37.672,#separate these points a little for viz
+    sampleID == "CB8 Jan 11" ~ 37.752, #separate these points a little for viz
+    sampleID == "SUB1 Aug 21" ~38.114, #separate these points a little for viz
+    sampleID == "CB9 Jan 11 Total" ~ 37.71,
+    sampleID == "CB5 Nov 5" ~ 37.845,
+
     TRUE ~ as.numeric(as.character(latitude))
   )) %>%
+  mutate(longitude = case_when(
+    sampleID == "GFNMS24 Mar 29" ~ -122.932, #missing
+    sampleID == "GFNMS25 Mar 30" ~ -122.938, #separate these points a little for viz
+    sampleID == "CB8 Aug 25" ~ -122.222, #overlap
+    sampleID == "SUB1 Aug 21" ~ -122.050, #overlap
+    sampleID == "CB5 Nov 5" ~ -122.40,
+    TRUE ~ as.numeric(as.character(longitude))
+  )) %>% 
   mutate(longitude_num = as.numeric(as.character(longitude)),
          latitude_num = as.numeric(as.character(latitude))) %>% 
   drop_na(c(latitude_num, longitude_num)) %>% 
@@ -3820,13 +3844,6 @@ st_crs(ca_co) # need to transform to CA Albers
 
 
 ```{r include=FALSE}
-spatial_risk_thresholds <- spatial_risk %>% 
-  mutate(threshold = case_when(particle.L.master.50 < Threshold1 ~ "< One",
-    particle.L.master.50 >= Threshold1 & particle.L.master.50 < Threshold2 ~ "> One",
-    particle.L.master.50 >= Threshold2 & particle.L.master.50 < Threshold3 ~ "> Two",
-    particle.L.master.50 >= Threshold3 & particle.L.master.50 < Threshold4 ~ "> Three",
-    particle.L.master.50 >= Threshold4 ~ "> Four"))
-  
 #color prep
 color_scale <- c("< One" = "#b6d7a8", #green
                 "> One" = "#fcc523", #yellow
@@ -3845,23 +3862,44 @@ sf <- ca_co %>%
   filter(name %in% c("San Francisco", "Alameda", "Contra Costa", "San Mateo", "Solano", "Marin", "Sonoma", "Napa", "Santa Clara"))
 
 spatial_risk_thresholds$threshold
+
+#view(spatial_risk_thresholds)
 ```
 
 ##Interactive Map
 ```{r}
 mapping_data <- spatial_risk_thresholds %>% 
-  dplyr::select(c(sampleID,
+  mutate('particles/L (median)' = round(particle.L.master.50,3),
+         'particles/L (5th percentile)' = round(particle.L.master.05,3),
+         'particles/L (95th percentile)' = round(particle.L.master.95,3)) %>% 
+   dplyr::select(c(sampleID,
                   Sampling.location,
                   season,
-                  particle.L.master.05,
-                  particle.L.master.50,
-                  particle.L.master.95,
-                  threshold
-                  ))
+                  'particles/L (5th percentile)',
+                  'particles/L (median)',
+                  'particles/L (95th percentile)',
+                  threshold,
+                  longitude,
+                  latitude
+                  )) 
 
-interactive <- mapview(mapping_data, zcol="threshold") # this may take a minute because of duplication
-#tmlwidgets::saveWidget(widget = interactive, file = "output/map.html", selfcontained = T)
+interactive <- mapview(mapping_data, zcol="threshold", col.regions = color_scale, layer.name = "Threshold",
+                       map.types = c("Esri.WorldShadedRelief", "OpenStreetMap.DE", "CartoDB.Positron", "CartoDB.DarkMatter", "OpenStreetMap", "Esri.WorldImagery", "OpenTopoMap"))
+
+
+#htmlwidgets::saveWidget(widget = interactive, file = "output/map.html", selfcontained = T)
+mapshot(interactive,
+         url = paste0(getwd(), "/output/map.html"))
+
 interactive
+```
+Are the general area classifgicaitons correct?
+```{r}
+sanctuary <- mapping_data %>% 
+  filter(Sampling.location == "National Marine Sancturay",
+         threshold == "> One")
+
+mapview(sanctuary)
 ```
 
 
@@ -3888,16 +3926,19 @@ ggmap(sf_basemap_terrain_bw)
 labels <- data.frame(name = c("San \n Francisco \n Bay",
                               "San \n Pablo \n Bay",
                               "Drakes \n Bay",
-                              "Gulf \n of the \n Farallones"),
+                              "Gulf \n of the \n Farallones",
+                              "Suisuin \n Bay"),
                      lat = c(37.65, #SF Bay
                                   38.058, #San Pablo Bay
                                   37.987,
-                                  37.77 #Gulf of the Farallones
+                                  37.77, #Gulf of the Farallones
+                            38.065 #Suisun Bay      
                      ),
                      long = c(-122.286, #SF Bay
                                    -122.387, #San Pablo Bay
                                    -122.899, #drakes bay
-                                   -122.925 #Gulf of the Farallones
+                                   -122.925, #Gulf of the Farallones
+                              -122.015 #Suisun BAy
                                    ))
 labels <- labels %>% 
   st_as_sf(coords = c("long", "lat"), 
