@@ -2388,8 +2388,49 @@ sensitivity
 
 ###### EXPORT FINAL DATASET
 ```{r}
-write.csv(sensitivity,
-          "output/data/final_aligned_dataset.csv"
+#select variables and rename for ease of interpretations
+finalDataset <- sensitivity %>% 
+   #annotate locations
+  mutate(site = case_when(
+    grepl("NB", sampleID,ignore.case = FALSE) ~ "North Bay",
+    grepl("CB", sampleID,ignore.case = FALSE) ~ "Central Bay",
+    grepl("SB10", sampleID,ignore.case = FALSE) ~ "South Bay",
+    grepl("SB11", sampleID,ignore.case = FALSE) ~ "South Bay",
+    grepl("SB12", sampleID,ignore.case = FALSE) ~ "South Bay",
+    grepl("SB13", sampleID,ignore.case = FALSE) ~ "South Bay",
+    grepl("LSB", sampleID,ignore.case = FALSE) ~ "Lower South Bay",
+    grepl("NMS", sampleID,ignore.case = FALSE) ~ "National Marine Sanctuary",
+    grepl("TB", sampleID,ignore.case = FALSE) ~ "Tomales Bay",
+    grepl("SC", sampleID,ignore.case = FALSE) ~ "general",
+    grepl("SUB", sampleID,ignore.case = FALSE) ~ "Suisin Bay",
+    grepl("SOSL", sampleID,ignore.case = FALSE) ~ "general",
+    grepl("Treasure", sampleID,ignore.case = FALSE) ~ "Central Bay",
+    grepl("SPB", sampleID,ignore.case = FALSE) ~ "San Pablo Bay",
+  )) %>% 
+  
+  dplyr::select(c(
+    #sample details
+   Reference, sampleID, sample.matrix, sample.matrix.specific, compartment, Sampling.apparatus,Sample.Type,
+   #location details
+    site, specific.location, latitude, longitude, season, 
+   # unaligned concentrations
+   particles.L.blank.corrected, particles.fish.blank.corrected, particles.kg.blank.corrected, 
+   #correction factors
+    fiber.correction.factor, proportion, x1M, x2M, alpha, alpha.sd, CF, 
+   #corrected concentrations
+    particle.L.master.05, particle.L.master.50, particle.L.master.95, particle.L.master, particle.fish.master, particles.kg.master)) %>% 
+  rename("min_mesh_size_um" = x1M,
+         "max_mesh_size_um" = x2M,
+         "plastic_proportion_correction" = proportion,
+         "rescaling_correction_factor" = CF,
+         "particles.L_rescaled_corrected_5thPercentile" = particle.L.master.05,
+         "particles.L_rescaled_corrected_50thPercentile" = particle.L.master.50,
+         "particles.L_rescaled_corrected_95thPercentile" = particle.L.master.95,
+         "particles.L_rescaled_corrected_deterministic" = particle.L.master)
+  
+
+write.csv(finalDataset,
+          "output/data/finalDataset.csv"
           )
 ```
 
