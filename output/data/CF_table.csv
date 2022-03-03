@@ -1,0 +1,7 @@
+"","Sampling.apparatus","matrix","mesh_size","CF","CF.lower.95","CF.upper.95"
+"1","1-L grab","Surface (1L-grab)",50,50.49,38.52,62.47
+"2","Composite","WWTP",110,17.03,13.61,20.45
+"3","depth-integrated perisaltic pump","Storm",106,59.87,57.57,62.17
+"4","Manta Trawl","Surface (Manta Trawl)",333,356.69,210.91,502.47
+"5","otter trawl/cast net","Fish",25,11.38,8.31,14.44
+"6","Van Veen Grab","Sediment",45,66.21,51.95,80.47
