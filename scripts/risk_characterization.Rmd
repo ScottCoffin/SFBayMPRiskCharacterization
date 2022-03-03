@@ -3878,8 +3878,8 @@ spatial_risk_thresholds <- sfBay_aligned %>%
            crs = 4326) # WGS 84
 
 #inspect
-st_crs(spatial_risk)
-st_crs(ca_co) # need to transform to CA Albers
+#st_crs(spatial_risk)
+#st_crs(ca_co) # need to transform to CA Albers
 ```
 
 
