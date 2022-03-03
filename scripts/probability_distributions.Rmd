@@ -21,7 +21,7 @@ knitr::opts_chunk$set(fig.width=12, fig.height=8, fig.path='Figs/',
                       warning=FALSE, message=FALSE,time_it = TRUE) #report
 ```
 
-The objective of this project is to determine site-specific SSDs for plastic particles in the SF Bay. Particle distribution data for plastic particles is from Dr. Diana Lin at SFEI.
+The objective of this project is to determine site-specific SSDs for plastic particles in the SF Bay. Particle distribution data for plastic particles is from the CEDEN databse, which was downloaded and sent to me by Dr. Diana Lin at SFEI ("2020-09-08_MooreParticleData.xlsx")
 
 #library
 ```{r}
@@ -30,25 +30,33 @@ library(ssdtools)
 library(fitdistrplus)
 library(rbin)
 ```
+# Constants and Functions
+```{r}
+my.formula <- y ~ x # for linear plotting
+```
+
 
 
 # SF Bay Data
 ## Import data
 ```{r}
 #site-specific distribution data
-#SF bay data
+#SF bay data for all particles obtained via all sampling apparatus' for all matrices
 distributions <- readxl::read_xlsx("data/2020-09-08_MooreParticleData.xlsx") %>%
   mutate(Size_um = 1000 * Length.mm) %>% 
-  mutate(matrix = case_when(grepl("sediment", MatrixName) ~ "sediment",
+#annotate matrices
+    mutate(matrix = case_when(grepl("sediment", MatrixName) ~ "sediment",
                             grepl("runoff", MatrixName) ~ "runoff",
                             grepl("samplewater", MatrixName) ~ "samplewater",
                             grepl("tissue", MatrixName) ~ "tissue",
                             grepl("blankwater", MatrixName) ~ "blankwater",
                             grepl("effluent", MatrixName) ~ "effluent")) %>% 
+  #annotate size cutoffs
   mutate(lower_size_limit_um = as.numeric(case_when(grepl(">125",MatrixName) ~ "125",
                                                  grepl(">355",MatrixName) ~ "355",
                                                  grepl(">500",MatrixName) ~ "500",
                                                  grepl(">1",MatrixName) ~ "1000"))) %>%
+  #annotate size cutoffs
   mutate(upper_size_limit_um = as.numeric(case_when(grepl("125 um",MatrixName) ~ "125",
                                                  grepl("355 um",MatrixName) ~ "355",
                                                  grepl("500 um",MatrixName) ~ "500",
@@ -58,6 +66,7 @@ distributions <- readxl::read_xlsx("data/2020-09-08_MooreParticleData.xlsx") %>%
 skimr::skim(distributions)
 ```
 ```{r}
+#This dataset contains a mixture of polymer types, including known plastics, known non-plastics, and unknowns. Summarize below
 sum <- distributions %>% 
   group_by(PlasticType) %>% 
   summarize(count = n()) %>% 
@@ -70,9 +79,11 @@ How many were unknown or natural?
 ```{r}
 sum %>% 
   mutate(general = case_when(
+    #reclassify with word extraction
     grepl("Unknown", PlasticType, ignore.case = TRUE) ~ "unknown",
     grepl("anthropogenic", PlasticType, ignore.case = TRUE) ~ "unknown",
     grepl("natural", PlasticType, ignore.case = TRUE) ~ "natural",
+    #further manually reclassify
     PlasticType == "Wool" ~ "natural",
     PlasticType == "Cotton" ~ "natural",
     PlasticType == "Cellulosic" ~ "natural",
@@ -85,9 +96,8 @@ sum %>%
   summarize(freq_total = sum(freq)) %>% 
   janitor::adorn_totals()
 ```
-
-
 ###Remove non-plastic particles and other unidentified matter
+To increase certainty in size distribution estimates, ONLY confirmed plastic particles will be used. 
 ```{r}
 #list levels for plastic ID
 levels(distributions$PlasticType)
@@ -105,6 +115,7 @@ skimr::skim(distributions)
 
 ## Modelling
 ### Visualization
+Visualize size distribution across all matrices
 ```{r}
 distributions %>% 
   ggplot(aes(x = Size_um)) +
@@ -126,18 +137,11 @@ distributions %>%
 
 ```
 
-#### Average Density
-```{r eval=FALSE, include=FALSE}
-library(skimr)
-distributions %>% 
-  mutate(density = case_when(polymer == "PE" ~ 0.91,
-                             polymer == "PET" ~ 1.38,
-                             polymer == "PS" ~ 1.04)) %>% 
-   #filter(Size_um >150
-    #     & Size_um <1000) %>% 
-  skim()
-```
-
+Matrix Names:
+"effluent" = wastewater treatment plant discharge
+"runoff" = stormwater runoff
+"samplewater" = surface water obtained using Manta Trawl or 1-L grab samples
+"tissue" = fish tissue
 
 ### Determine maximum size for which the dataset
 The maximum size for which the dataset was valid is determined using a theoretical particle
@@ -151,14 +155,11 @@ obtained
 5. If more data were included than in step 1, the procedure was repeated.
 6. Once the PDL does not change anymore, only data between the minimum and PDL were
 included for the final trendline fitting.
-```{r eval=FALSE, include=FALSE}
-#first split dataset into polymers
 
-```
 
 ```{r}
 sample_water <- distributions %>% 
-  filter(matrix == "samplewater",
+  filter(matrix == "samplewater", #surface water
          lower_size_limit_um == 125) %>% 
   group_by(Size_um, lower_size_limit_um, upper_size_limit_um, SampleMatrix) %>% 
   summarize(abundance = n())
@@ -166,10 +167,38 @@ sample_water <- distributions %>%
 sample_water %>% 
   ggplot(aes(x = Size_um, y = abundance)) +
   geom_point() +
-  geom_smooth(method = "lm") +
+  geom_smooth(method = "lm", se=FALSE, formula = my.formula) +
+   stat_poly_eq(formula = my.formula, 
+                aes(label = paste(..eq.label.., ..rr.label.., ..p.value.label.., sep = "~~~")),
+                label.x  = "right",
+                label.y = "top",
+                parse = TRUE) +         
   scale_x_log10() +
   scale_y_log10()
 ```
+Here we can see that the particles do not cleanly fit an expected log-log trendline which is likely due to the way in which particle lengths are annotated. We could try rounding the particle lengths.
+
+```{r}
+distributions %>% 
+  filter(matrix == "samplewater",
+         lower_size_limit_um == 125) %>% 
+  mutate(rounded_size_um = round(Size_um, -2)) %>% #round to the 100th place
+  filter(rounded_size_um >= 125) %>% #if lower size limit is 125 um, ensure no particles below are considered
+  filter(rounded_size_um > 400 & rounded_size_um <5000) %>%  #400 um seems to be where size counting tails off, and 5,000 um is arbitrary upper size limit for microplastics
+  group_by(rounded_size_um , lower_size_limit_um, upper_size_limit_um, SampleMatrix) %>% 
+  summarize(abundance = n()) %>% 
+  ggplot(aes(x = rounded_size_um, y = abundance)) +
+  geom_point() +
+  geom_smooth(method = "lm", se=FALSE, formula = my.formula) +
+   stat_poly_eq(formula = my.formula, 
+                aes(label = paste(..eq.label.., ..rr.label.., ..p.value.label.., sep = "~~~")),
+                label.x  = "right",
+                label.y = "top",
+                parse = TRUE) +    
+  scale_x_log10() +
+  scale_y_log10()
+```
+
 
 ```{r}
 distributions %>% 
@@ -191,6 +220,9 @@ distributions %>%
  # geom_smooth(method = "lm") +
   scale_x_log10() +
   scale_y_log10()
+```
+```{r}
+
 ```
 
 
@@ -226,7 +258,7 @@ sample_waterbinned2 <- sample_waterbinned %>%
 
 ## model
 library(ggpmisc)
-my.formula <- y ~ x
+
 p <- sample_waterbinned2 %>% 
   #filter(logAbundance < -1.0) %>% 
   ggplot(aes(x = logSize, y = logAbundance)) +
