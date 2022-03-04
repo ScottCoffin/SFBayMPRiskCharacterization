@@ -29,6 +29,7 @@ library(tidyverse)
 library(ssdtools)
 library(fitdistrplus)
 library(rbin)
+library(ggpmisc)
 ```
 # Constants and Functions
 ```{r}
@@ -103,13 +104,50 @@ To increase certainty in size distribution estimates, ONLY confirmed plastic par
 levels(distributions$PlasticType)
 
 distributions <- distributions %>% 
+     mutate(general = case_when(
+    grepl("Unknown", PlasticType, ignore.case = TRUE) ~ "unknown",
+    grepl("anthropogenic", PlasticType, ignore.case = TRUE) ~ "anthropogenic (not plastic)",
+    grepl("natural", PlasticType, ignore.case = TRUE) ~ "natural",
+    PlasticType == "Non-Synthetic Fiber (cotton, silk, wool)" ~ "natural",
+    PlasticType == "Wool" ~ "natural",
+    PlasticType == "Cotton" ~ "natural",
+    PlasticType == "Cellulosic" ~ "natural",
+    PlasticType == "Glass" ~ "anthropogenic (not plastic)",
+    PlasticType == "Asphalt" ~ "anthropogenic (not plastic)",
+    PlasticType == "Not Characterized" ~ "Not Characterized",
+    PlasticType == "Stearates, Lubricants" ~ "anthropogenic (not plastic)"
+    )) %>% 
+  replace_na(list(general = "plastic")) %>% 
   #remove non-plastics
-  filter(!PlasticType %in% c("Asphalt", "Cellulosic", "Glass", "Unknown", "Wool", "Anthropogenic (protein base)", 
-                             "Anthropogenic (unknown base)", "Cotton", "Inorganic natural material", "Anthropogenic (cellulosic)",
-                             "Not Characterized", "Organic natural material", "Uknown Potentially Rubber", 
-                             "Stearates, Lubricants, Waxes"))
+  filter(general == "plastic") %>% 
+    #filter(!str_detect(SampleID, "DUP")) %>% 
+  filter(!str_detect(SampleID, "blank")) %>% #remove blanks
+  #annotate season
+  mutate(season = case_when(grepl("Nov|Dec|Jan|Feb|Mar", SampleID, ignore.case = TRUE) ~ "wet",
+                            grepl("Aug|Sep", SampleID, ignore.case = TRUE) ~ "dry")) %>% 
+   mutate(site = case_when(
+    grepl("NB", SampleID,ignore.case = FALSE) ~ "North Bay",
+    grepl("CB", SampleID,ignore.case = FALSE) ~ "Central Bay",
+    grepl("SB10", SampleID,ignore.case = FALSE) ~ "South Bay",
+    grepl("SB11", SampleID,ignore.case = FALSE) ~ "South Bay",
+    grepl("SB12", SampleID,ignore.case = FALSE) ~ "South Bay",
+    grepl("SB13", SampleID,ignore.case = FALSE) ~ "South Bay",
+    grepl("LSB", SampleID,ignore.case = FALSE) ~ "Lower South Bay",
+    grepl("NMS", SampleID,ignore.case = FALSE) ~ "National Marine Sanctuary",
+    grepl("TB", SampleID,ignore.case = FALSE) ~ "Tomales Bay",
+    grepl("SC", SampleID,ignore.case = FALSE) ~ "general",
+    grepl("SUB", SampleID,ignore.case = FALSE) ~ "Suisin Bay",
+    grepl("SOSL", SampleID,ignore.case = FALSE) ~ "general",
+    grepl("Treasure", SampleID,ignore.case = FALSE) ~ "Central Bay",
+    grepl("SPB", SampleID,ignore.case = FALSE) ~ "San Pablo Bay",
+  ))
 
 skimr::skim(distributions)
+```
+### Data export
+```{r}
+write.csv(distributions,
+          "output/data/cleanParticleData.csv")
 ```
 
 
@@ -256,8 +294,6 @@ sample_waterbinned2 <- sample_waterbinned %>%
   mutate(logAbundance = log10(bin_prop),
          logSize = log10(cut.numeric))
 
-## model
-library(ggpmisc)
 
 p <- sample_waterbinned2 %>% 
   #filter(logAbundance < -1.0) %>% 
@@ -537,7 +573,7 @@ sediment_cut <- distributions %>%
 
 #cut into bins
 #sedimentwinsors <- rbin_winsorize(sediment_cut, polymer, Size_um, 20)
-sedimentwinsors <- rbin_winsorize(sediment_cut, predictor = Size_um, Size_um, bins = 20, winsor_rate = 0.05)
+sedimentwinsors <- rbin_winsorize(sediment_cut, predictor = Size_um, Size_um, bins = 19, winsor_rate = 0.05)
 #save as dataframe
 sedimentbinned <- as.data.frame(sedimentwinsors$bins) %>% 
   dplyr::select(c(cut_point, bin_count, bin_prop))
@@ -612,7 +648,7 @@ tissue_cut <- distributions %>%
 
 #cut into bins
 #tissuewinsors <- rbin_winsorize(tissue_cut, polymer, Size_um, 20)
-tissuewinsors <- rbin_winsorize(tissue_cut, predictor = Size_um, Size_um, bins = 18, winsor_rate = 0.05)
+tissuewinsors <- rbin_winsorize(tissue_cut, predictor = Size_um, Size_um, bins = 14, winsor_rate = 0.05)
 #save as dataframe
 tissuebinned <- as.data.frame(tissuewinsors$bins) %>% 
   dplyr::select(c(cut_point, bin_count, bin_prop))
@@ -750,7 +786,7 @@ write.csv(summary,"output/data/PDFs.csv")
 
 
 ### Barplot
-```{r}
+```{r eval=FALSE, include=FALSE}
 summary %>% 
   ggplot(aes(x = names, y = preds, fill = R2)) +
   geom_col() +
