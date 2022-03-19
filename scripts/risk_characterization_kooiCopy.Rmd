@@ -58,11 +58,14 @@ alpha.stormwater <- 2.41
 alpha.stormwater.sd <- 0.22
 alpha.stormwater.n <- 411
 
-alpha.marine <- 2.15#2.00 #based on Kooi et al (2021)
-max.alpha.marine <- 3.5 #NEED TO CORRECT!!!!!
-min.alpha.marine <- 1.1 #NEED TO CORRECT!!!!!
+alpha.marine.site <- 2.15 #based on MLE
+alpha.marine.sd.site <- 0.48 #based on MLE
+
+alpha.marine <- 2.07 #based on Kooi et al (2021)
+max.alpha.marine <- 3.5 
+min.alpha.marine <- 1.1 
 alpha.marine.sd <- 0.03 #based on Kooi et al (2021)
-alpha.marine.n <- 1241
+alpha.marine.n <- 1241 #based on MLE
 #alpha.marine.rsd <- alpha.marine.se / alpha.marine
 
 alpha.wastewater <- 2.41
@@ -117,7 +120,8 @@ Threshold4_oxidative.stress = 4100 / AF
 
 ```{r Theme, include=FALSE}
 #Theme type
-     theme.type <- theme_bw(base_size = 15) +
+     theme.type <- #dark_theme_bw(base_size = 15) + 
+  theme_bw(base_size = 15) +
                     theme(plot.title = element_text(hjust = 0.5),
                     plot.subtitle = element_text(hjust = 0.5))
      #color selection
@@ -1745,11 +1749,11 @@ plastic_hist <- plastic %>%
   scale_x_continuous(limits = c(0, 1),
                      breaks = c(0, round(plastic5,2), round(plastic50,2), round(plastic95,2))) +
   geom_vline(aes(xintercept = median(plastic.proportion)),
-             linetype = "solid") +
+             linetype = "solid", color = "black") +
   geom_vline(aes(xintercept = quantile(plastic.proportion, 0.95)),
-             linetype = "dashed") +
+             linetype = "dashed", color = "black") +
   geom_vline(aes(xintercept = quantile(plastic.proportion, 0.05)),
-             linetype = "dashed") +
+             linetype = "dashed", color = "black") +
   xlab("Proportion of Particles Confirmed Plastic") +
   ylab("Relative Density") +
   theme.type +
@@ -1790,14 +1794,14 @@ alpha_hist <- alpha %>%
                color = "purple") +
   #geom_histogram(fill = "lightblue") +
   #@scale_x_log10() +
-  scale_x_continuous(limits = c(2.0, 2.3),
+  scale_x_continuous(limits = c(1.9, 2.2),
                      breaks = c(1, round(alpha5,2), round(alpha50,2), round(alpha95,2), 3)) +
   geom_vline(aes(xintercept = median(alpha)),
-             linetype = "solid") +
+             linetype = "solid", color = "black") +
   geom_vline(aes(xintercept = quantile(alpha, 0.95)),
-             linetype = "dashed") +
+             linetype = "dashed", color = "black") +
   geom_vline(aes(xintercept = quantile(alpha, 0.05)),
-             linetype = "dashed") +
+             linetype = "dashed", color = "black") +
   ylab("Relative Density") +
   theme.type +
   theme(legend.position = "none",
@@ -1836,15 +1840,15 @@ CF_hist <- alpha2 %>%
                color = "lightblue") +
   #geom_histogram(fill = "lightblue") +
   #@scale_x_log10() +
-  scale_x_continuous(limits = c(300, 1500),
+  scale_x_continuous(limits = c(200, 900),
                      breaks = c(round(CF5,0), round(CF50,0), round(CF95,0), #1000,
                                 2000)) +
   geom_vline(aes(xintercept = median(CF)),
-             linetype = "solid") +
+             linetype = "solid", color = "black") +
   geom_vline(aes(xintercept = quantile(CF, 0.95)),
-             linetype = "dashed") +
+             linetype = "dashed", color = "black") +
   geom_vline(aes(xintercept = quantile(CF, 0.05)),
-             linetype = "dashed") +
+             linetype = "dashed", color = "black") +
   ylab("Relative Density") +
   xlab("Alignment Correction Factor") +
   theme.type +
@@ -1895,14 +1899,14 @@ combined.corrections_hist <- combined.distributions %>%
                color = "deeppink") +
   #geom_histogram(fill = "lightblue") +
   #@scale_x_log10() +
-  scale_x_continuous(limits = c(0, 50000),
+  scale_x_continuous(limits = c(0, 30000),
                      breaks = c(round(combined.corrections5,0), round(combined.corrections50,0), round(combined.corrections95,0))) +
   geom_vline(aes(xintercept = median(combined.corrections)),
-             linetype = "solid") +
+             linetype = "solid", color = "black") +
   geom_vline(aes(xintercept = quantile(combined.corrections, 0.95)),
-             linetype = "dashed") +
+             linetype = "dashed", color = "black") +
   geom_vline(aes(xintercept = quantile(combined.corrections, 0.05)),
-             linetype = "dashed") +
+             linetype = "dashed", color = "black") +
   ylab("Relative Density") +
   xlab("Combined Correction Factors") +
   theme.type +
@@ -2327,12 +2331,17 @@ alignment_factors <- data.frame("matrix" = c("Surface (1L-grab)", "Surface (Mant
                                 "CF.sd" = c(CF.1Lgrab.sd, CF.manta.trawl.sd, CF.fish.sd, CF.stormwater.sd, CF.wastewater.sd, CF.sediment.sd),
                                 "alpha" = c(alpha.marine, alpha.marine, alpha.fish, alpha.stormwater, alpha.wastewater, alpha.sediment),
                                 "alpha.sd" = c(alpha.marine.sd, alpha.marine.sd, alpha.fish.sd, alpha.stormwater.sd, alpha.wastewater.sd, alpha.sediment.sd),
+                                "alpha.site" = c(alpha.marine.site, alpha.marine, alpha.fish, alpha.stormwater, alpha.wastewater, alpha.sediment),
+                                "alpha.sd.site" = c(alpha.marine.sd.site, alpha.marine.sd, alpha.fish.sd, alpha.stormwater.sd, alpha.wastewater.sd, alpha.sediment.sd),
                                 "alpha.n" = c (alpha.marine.n, alpha.marine.n, alpha.fish.n, alpha.stormwater.n, alpha.wastewater.n, alpha.sediment.n)) %>% 
   mutate(alpha.se = alpha.sd / sqrt(alpha.n)) %>% 
+  mutate(alpha.se.site = alpha.sd.site / sqrt(alpha.n)) %>% 
   mutate(alpha.upper.68 = alpha + alpha.se,
          alpha.lower.68 = alpha - alpha.se,
          alpha.upper.95 = alpha + (1.96*alpha.se),
          alpha.lower.95 = alpha - (1.96*alpha.se),
+         alpha.upper.95.site = alpha.site + (1.96*alpha.se),
+         alpha.lower.95.site = alpha.site - (1.96*alpha.se),
          alpha.upper.99 = alpha + (3*alpha.se),
          alpha.lower.99 = alpha - (3*alpha.se),
          alpha.rsd = alpha.se / alpha) # value that's used in propagation of uncertainty
@@ -2349,10 +2358,10 @@ sfBay_new2 <- left_join(sfBay_new, alignment_factors, by = "matrix")
 sensitivity <- sfBay_new2 %>%
   #derive correction factors
   mutate(#CF.upper.68 = CFfnx(a = alpha.upper.68, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
-         CF.upper.95 = CF + (1.96 * (CF.sd / sqrt(alpha.n))),
+         CF.upper.95 = CFfnx(a = alpha.upper.95, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
          #CF.upper.99 = CFfnx(a = alpha.upper.99, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
          #CF.lower.68 = CFfnx(a = alpha.lower.68, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
-         CF.lower.95 = CF - (1.96 * (CF.sd / sqrt(alpha.n))),
+         CF.lower.95 = CFfnx(a = alpha.lower.95, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
          #CF.lower.99 = CFfnx(a = alpha.lower.99, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set)
          )%>%
   #apply correction fcators
@@ -2454,14 +2463,24 @@ write.csv(finalDataset,
           )
 ```
 
-###Export table showing correction factors
+###Export table showing site-specific correction factors
 ```{r}
-CF_table <- sensitivity %>% 
+
+
+
+CFs <- sfBay_new2 %>%
+  #derive correction factors
+  mutate(CF.upper.95.site = CFfnx(a = alpha.upper.95.site, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+        CF.lower.95.site = CFfnx(a = alpha.lower.95.site, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set),
+        CF.site = CFfnx(a = alpha.site, x1M = x1M, x2M = x2M, x1D = x1D_set, x2D = x2D_set)
+         )
+
+CF_table <- CFs %>% 
   group_by(Sampling.apparatus, matrix) %>% 
   summarize(mesh_size = mean(x1M),
-            CF = round(mean(CF),2), 
-            CF.lower.95 = round(mean(CF.lower.95),2),
-            CF.upper.95 = round(mean(CF.upper.95),2))
+            CF.site = round(mean(CF.site),2), 
+            CF.lower.95.site = round(mean(CF.lower.95.site),2),
+            CF.upper.95.site = round(mean(CF.upper.95.site),2))
 
 write.csv(CF_table,
           "output/data/kooi/CF_table.csv")
@@ -2555,17 +2574,24 @@ wide.sensitivity.exceedances.prep <- wide.sensitivity.exceedances %>%
   filter(variable != "median") %>% 
   #arrange(desc(lower)) %>% 
   mutate(name = factor(factor(variable), 
-                           levels = c("combined alignments and corrections", "fiber correction", "size alignment", "plastic proportion")))
+                           levels = c("combined alignments and corrections", "fiber correction", "size rescaling", "plastic proportion")))
   ####plot####
 ## Break axis ##
 #ide.sensitivity.exceedances.prep$facet <- wide.sensitivity.exceedances.prep$upper < 0.5
 
+
+wide.sensitivity.exceedances.prep
+write.csv(wide.sensitivity.exceedances.prep,
+          "output/data/kooi/sensitivity_analysis.csv")
+```
+
+```{r}
 sensitivity.figure <- wide.sensitivity.exceedances.prep %>% 
   ggplot() +
   geom_errorbarh(aes(y = name, xmin = lower, xmax = upper),
                  na.rm = TRUE) +
   geom_vline(xintercept = median, linetype = "dashed", color = "red", size = 1.2) +
-  scale_y_discrete(labels = c("combined alignments \n and corrections", "fiber correction", "size alignment",  "plastic proportion")) +
+  scale_y_discrete(labels = c("combined alignments \n and corrections", "fiber correction", "size rescaling",  "plastic proportion")) +
 #  facet_grid(. ~ facet, scales = "free", space = "free") +
   scale_x_continuous(name = "Percentage of All SF Bay Manta Trawl Samples \n Exceeding Food Dilution Threshold One (+- 95% CI)",
                        labels = scales::percent_format(scale = 100, accuracy= 1),
@@ -2724,19 +2750,26 @@ sfBayECDF_sensitivity <- sfBay_aligned %>%
                      breaks = c(0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10, 50, 100),
                      labels = comma_signif,
                      limits = c(1e-3,100))+
-  annotation_logticks(scaled = FALSE)+ #log scale rick marks on bottom
-  theme.type +
+  annotation_logticks(scaled = FALSE) #log scale rick marks on bottom
+  
+sfBayECDF_sensitivity_white <- sfBayECDF_sensitivity +
+theme.type +
   theme(legend.title = element_blank(),
         legend.position = c(0.1,0.6),
         legend.key.size = unit(0.6, 'cm'))
-  #labs(title = "Global Surface Water Marine Microplastics Concentrations",
-   #    subtitle = paste("Particles/L corrected to:",x1D_set, "to", x2D_set, "um"),
-    #   caption = paste("Concentration data from Adams et al (2019): 23 studies, 57 sampling locations, n = 377; corrected for size ranges. Alpha = ",alpha))
+
+sfBayECDF_sensitivity_dark <- sfBayECDF_sensitivity +
+dark_theme_bw(base_size = 15) +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.title.y = element_blank(),
+        legend.position = "none"
+        )
  
-sfBayECDF_sensitivity
+sfBayECDF_sensitivity_white
 ```
 ```{r}
-ggsave(plot = sfBayECDF_sensitivity,
+ggsave(plot = sfBayECDF_sensitivity_white,
        filename = "sfBayECDF_sensitivity.jpeg",
        path = "output/figures/kooi/", 
        width = 10, height = 6, units = "in",
@@ -2937,10 +2970,10 @@ barplot <- sensitivity.analysis.manta %>%
   geom_col(aes(y = frequency, fill = threshold)) +
   #95th
   geom_errorbar(aes(ymin = frequency_lower, ymax = frequency_upper),
-                linetype = "dashed", width = 1.0, alpha = 0.7) +
+                linetype = "dashed", width = 1.0, alpha = 0.7, color = "black") +
   #25th and 75th percetnile
   geom_errorbar(aes(ymin = frequency.25, ymax = frequency.75),
-                linetype = "solid", width = 0.5, alpha = 1) +
+                linetype = "solid", width = 0.5, alpha = 1, color = "black") +
   scale_y_continuous(limits = c(0,1),
                      labels = scales::percent) +
   scale_fill_manual(values = c("< Threshold One" = "#b6d7a8", #green
@@ -2951,7 +2984,10 @@ barplot <- sensitivity.analysis.manta %>%
                                )) +
 
   coord_flip() +
-  ylab("Percentage of Samples Exceeding Threshold") +
+  ylab("Percentage of Samples Exceeding Threshold") 
+
+#make light mode and dark mode
+barplot_white <- barplot +
   theme.type +
   theme(axis.title.y = element_blank(),
         axis.text.y = element_text(color = c("#90ab85", #green
@@ -2965,12 +3001,30 @@ barplot <- sensitivity.analysis.manta %>%
         legend.position = "none"
         )
 
-barplot
+#dark mode
+barplot_dark <- barplot +
+  dark_theme_bw(base_size = 15) +
+  theme(plot.title = element_text(hjust = 0.5),
+        plot.subtitle = element_text(hjust = 0.5),
+        axis.title.y = element_blank(),
+        axis.text.y = element_text(color = c("#90ab85", #green
+                               "#fcc523", #yellow
+                               "#bf8345", #orange
+                                "#e06665", # red
+                               "#ac5784" #purple
+                               ),
+                               face = "bold",
+                               size = 18),
+        legend.position = "none"
+        )
+
+barplot_white
 ```
 
 ###### ARRANGE
+
 ```{r}
-bar_cdf <- ggarrange(barplot, sfBayECDF_sensitivity,
+bar_cdf <- ggarrange(barplot_white, sfBayECDF_sensitivity_white,
           nrow = 2,
           labels = c("A", "B"))
 
@@ -2979,11 +3033,26 @@ bar_cdf
 ggsave(plot = bar_cdf,
        filename = "bar_cdf.jpeg",
        path = "output/figures/kooi/", 
-       width = 10, height = , units = "in",
+       width = 10, height = 8, units = "in",
        bg = "white",
        dpi = 300)
 ```
 
+####### Dark MODE
+```{r}
+bar_cdf_dark <- ggarrange(barplot_dark, sfBayECDF_sensitivity_dark,
+          nrow = 2,
+          labels = c("A", "B"))
+
+bar_cdf_dark
+
+ggsave(plot = bar_cdf_dark,
+       filename = "bar_cdf_dark.jpeg",
+       path = "output/figures/kooi/", 
+       width = 10, height = 8, units = "in",
+       bg = "black",
+       dpi = 300)
+```
 
 #### Group-by Location
 ##### Food Dilution
@@ -3394,7 +3463,9 @@ sfBayECDF_wetDry <- sfBay_new %>%
   #ggplot(aes(color = interaction(season, Sampling.apparatus, sep = "-"))) +
   ggplot(aes(color = season)) +
   #aligned
-  stat_ecdf(aes(x = particle.L.master.50),geom = "step", linetype = 'solid', alpha = 0.7, size = 2.5) +
+  stat_ecdf(aes(x = particle.L.master.50),geom = "step", linetype = 'solid', alpha = 0.7, size = 2.2) +
+  stat_ecdf(aes(x = particle.L.master.95),geom = "step", linetype = 'dotted', alpha = 0.6, size = 1.5) +
+  stat_ecdf(aes(x = particle.L.master.05),geom = "step", linetype = 'dotted', alpha = 0.6, size = 1.5) +
   #unaligned
   #stat_ecdf(aes(x = unaligned.particle.L.master),geom = "step", linetype = 'solid', alpha = 0.2, size = 2.5) +
   #color
@@ -3628,6 +3699,10 @@ sensitivity.analysis.manta.noFiberCorrection
 ```
 ##### Bar Plots
 ```{r}
+sensitivity.analysis.manta.noFiberCorrection
+```
+
+```{r}
 barplot.noFiberCorrection <- sensitivity.analysis.manta.noFiberCorrection %>% 
   # replace_na(list(rel.freq_Conc = 0,
   #                 rel.freq_conc.lower.95 = 0,
@@ -3650,10 +3725,10 @@ barplot.noFiberCorrection <- sensitivity.analysis.manta.noFiberCorrection %>%
   geom_col(aes(y = frequency, fill = threshold)) +
   #95th
   geom_errorbar(aes(ymin = frequency_lower, ymax = frequency_upper),
-                linetype = "dashed", width = 1.0, alpha = 0.7) +
+                linetype = "dashed", width = 1.0, alpha = 0.7, color = "black") +
   #25th and 75th percetnile
   geom_errorbar(aes(ymin = frequency.25, ymax = frequency.75),
-                linetype = "solid", width = 0.5, alpha = 1) +
+                linetype = "solid", width = 0.5, alpha = 1, color = "black") +
   scale_y_continuous(limits = c(0,1),
                      labels = scales::percent) +
   scale_fill_manual(values = c("< Threshold One" = "#b6d7a8", #green
@@ -3692,7 +3767,7 @@ bar_cdf.noFiberCorrection
 ggsave(plot = bar_cdf.noFiberCorrection,
        filename = "bar_cdf_noFiberCorrection.jpeg",
        path = "output/figures/kooi/", 
-       width = 10, height = , units = "in",
+       width = 10, height = 8, units = "in",
        bg = "white",
        dpi = 300)
 ```
@@ -4198,20 +4273,39 @@ risk_smc <- ggmap(sf_basemap) +
                          style = north_arrow_fancy_orienteering()) + #change style of north arrow
   labs(legend = "Threshold") +
   xlab("Longitude (NAD83)") +
-  ylab("Latitude (NAD83)") +
+  ylab("Latitude (NAD83)") 
   #ggtitle("Microplastics Risk Exceedances in San Francisco Bay") +
+
+#dark and light
+risk_smc_white <- risk_smc +  
   theme.type +
   theme(
         legend.background = element_rect(fill = "white", color = "black"),
         legend.position = c(0.85, 0.87),
         legend.key.size = unit(0.5, 'cm'))
 
-ggsave(plot = risk_smc,
+risk_smc_dark <- risk_smc +  
+  dark_theme_bw(base_size = 15) +
+  theme(
+        legend.background = element_rect(fill = "black", color = "white"),
+        legend.position = c(0.85, 0.87),
+        legend.key.size = unit(0.5, 'cm'))
+
+ggsave(plot = risk_smc_white,
        filename = "risk_smc.jpeg",
        path = "output/figures/kooi/", 
        width = 9, height = 8, units = "in",
        bg = "white",
        dpi = 300)
+
+
+ggsave(plot = risk_smc_dark,
+       filename = "risk_smc_dark.jpeg",
+       path = "output/figures/kooi/", 
+       width = 9, height = 8, units = "in",
+       bg = "black",
+       dpi = 300)
+
 
 #plot
 risk_smc

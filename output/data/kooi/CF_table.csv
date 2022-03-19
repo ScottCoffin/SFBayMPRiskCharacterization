@@ -1,7 +1,7 @@
-"","Sampling.apparatus","matrix","mesh_size","CF","CF.lower.95","CF.upper.95"
-"1","1-L grab","Surface (1L-grab)",50,90.36,88.73,91.99
-"2","Composite","WWTP",110,759.21,758.46,759.97
-"3","depth-integrated perisaltic pump","Storm",106,720.41,719.88,720.94
-"4","Manta Trawl","Surface (Manta Trawl)",333,832.71,812.86,852.55
-"5","otter trawl/cast net","Fish",25,11.38,8.31,14.44
-"6","Van Veen Grab","Sediment",45,1332.39,1328.58,1336.2
+"","Sampling.apparatus","matrix","mesh_size","CF.site","CF.lower.95.site","CF.upper.95.site"
+"1","1-L grab","Surface (1L-grab)",50,90.36,89.77,90.95
+"2","Composite","WWTP",110,759.21,687.25,838.74
+"3","depth-integrated perisaltic pump","Storm",106,720.41,652.63,795.26
+"4","Manta Trawl","Surface (Manta Trawl)",333,529.15,524.18,534.17
+"5","otter trawl/cast net","Fish",25,11.38,8.7,14.91
+"6","Van Veen Grab","Sediment",45,1332.39,1077.04,1648.29
