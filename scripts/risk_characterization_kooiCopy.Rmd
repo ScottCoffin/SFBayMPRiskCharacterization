@@ -1664,11 +1664,11 @@ fiber_hist <- fiber %>%
   scale_x_continuous(limits = c(0, 100),
                      breaks = c(round(fiber5,0), round(fiber50,0), round(fiber95,0), 100)) +
   geom_vline(aes(xintercept = median(fiber.adjustment)),
-             linetype = "solid") +
+             linetype = "solid", color = "black") +
   geom_vline(aes(xintercept = quantile(fiber.adjustment, 0.95)),
-             linetype = "dashed") +
+             linetype = "dashed", color = "black") +
   geom_vline(aes(xintercept = quantile(fiber.adjustment, 0.05)),
-             linetype = "dashed") +
+             linetype = "dashed", color = "black") +
   xlab("Manta Trawl Fiber Correction Factor") +
   ylab("Relative Density") +
   theme.type +
