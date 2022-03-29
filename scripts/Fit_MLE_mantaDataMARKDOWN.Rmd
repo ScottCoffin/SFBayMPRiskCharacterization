@@ -248,7 +248,9 @@ df.bs.all <- data.frame(gof = numeric(), xmin = numeric(), pars = numeric(),
                         ntail = numeric(),watertype = numeric())
 
 df.plot.all <- data.frame(x = numeric(), y = numeric(), watertype = numeric())
+```
 
+```{r}
 
 ## bootstrap the results
 for(i in unique(df$matrix)){
@@ -258,7 +260,7 @@ for(i in unique(df$matrix)){
   df.pl <- conpl$new(na.omit(df.temp$Size_um)) 
   
   ## bootstrap fit
-  bs <- bootstrap(df.pl, no_of_sims = 5, ###SHOULD BE 100
+  bs <- bootstrap(df.pl, no_of_sims = 10, ###SHOULD BE 100
                   threads = 2,
                   xmax = 2E12)
   bs.res <- bs$bootstraps
@@ -353,12 +355,32 @@ write.csv(df.bs.plot,
 
 df.bs.plot
 ```
+## Plot statistical significance
+Since it is possible to fit a power law distribution to any data set, it is appropriate to test
+whether the observed data set actually follows a power law. Clauset et al. (2009) suggest that
+this hypothesis is tested using a goodness-of-fit test, via a bootstrapping procedure. This test
+generates a p -value that can be used to quantify the plausibility of the hypothesis. If the p -value
+is large, than any difference between the empirical data and the model can be explained with statistical fluctuations.
+If p ' 0, then the model does not provide a plausible fit to the data and
+another distribution may be more appropriate. In this scenario,
+H0 : data is generated from a power law distribution.
+H1 : data is not generated from a power law distribution.
+To test these hypothesis, we use the bootstrap p function
+
+
+```{r eval=FALSE, include=FALSE}
+bs_p = bootstrap_p(df.pl)
+plot(bs_p)
+```
+
+
 # Plot
 
 ```{r}
 ## Plot the results
 p <- ggplot(df.plot.all, aes(x = x, y = y)) +
-  geom_point(alpha = 0.5) +
+  geom_point(alpha = 0.5,
+             color = "black") +
 ## add xmin range (rectangle) and mean (segment)
   geom_rect(data = df.bs.plot, aes(x = NULL, y = NULL, xmin = xmin.lim, #mean.xmin - 2*sd.xmin,
                                           xmax = mean.xmin + 2*sd.xmin,

@@ -54,9 +54,9 @@ library(msm)
 set.seed(1234) #reproducibility
 
 ###### Choose concentration alignment parameters####
-alpha.stormwater <- 2.41
-alpha.stormwater.sd <- 0.22
-alpha.stormwater.n <- 411
+alpha.stormwater <- 2.97
+alpha.stormwater.sd <- 0.83
+alpha.stormwater.n <- 187
 
 alpha.marine.site <- 2.15 #based on MLE
 alpha.marine.sd.site <- 0.48 #based on MLE
@@ -69,16 +69,16 @@ alpha.marine.n <- 1241 #based on MLE
 #alpha.marine.rsd <- alpha.marine.se / alpha.marine
 
 alpha.wastewater <- 2.41
-alpha.wastewater.sd <- 0.22
-alpha.wastewater.n <- 411
+alpha.wastewater.sd <- 0.14
+alpha.wastewater.n <- 504
 
-alpha.sediment <- 2.89
-alpha.sediment.sd <- 0.44
+alpha.sediment <- 2.90
+alpha.sediment.sd <- 0.41
 alpha.sediment.n <- 238
 
-alpha.fish <- 1.75
-alpha.fish.sd <- 0.17
-alpha.fish.n <- 15
+alpha.fish <- 2.26
+alpha.fish.sd <- 0.21
+alpha.fish.n <- 212
 
 #based on Kooi
 alpha.freshwater = 2.64 #table s4 from Kooi et al 2021 for freshwater surface water. length
@@ -4097,11 +4097,11 @@ ca_co <- USAboundaries::us_counties(resolution = "high", states = "CA")
 
 # convert point data
 spatial_risk_thresholds <- sfBay_aligned %>% 
-    mutate(threshold = case_when(particle.L.master.50 < Threshold1_food ~ "< One",
-    particle.L.master.50 >= Threshold1_food & particle.L.master.50 < Threshold2_food ~ "> One",
-    particle.L.master.50 >= Threshold2_food & particle.L.master.50 < Threshold3_food ~ "> Two",
-    particle.L.master.50 >= Threshold3_food & particle.L.master.50 < Threshold4_food ~ "> Three",
-    particle.L.master.50 >= Threshold4_food ~ "> Four")) %>% 
+    mutate(threshold = case_when(particle.L.master.50 < Threshold1_food ~ "< Thresholds",
+    particle.L.master.50 >= Threshold1_food & particle.L.master.50 < Threshold2_food ~ "Investigative",
+    particle.L.master.50 >= Threshold2_food & particle.L.master.50 < Threshold3_food ~ "Source tracking",
+    particle.L.master.50 >= Threshold3_food & particle.L.master.50 < Threshold4_food ~ "Impaired waterbody",
+    particle.L.master.50 >= Threshold4_food ~ "Pollution control measures")) %>% 
   #filter(!sampleID == "CB9 Jan 11 Total") %>% 
   filter(Sampling.apparatus == "Manta Trawl") %>% 
   filter(!str_detect(sampleID, "DUP")) %>% 
@@ -4143,17 +4143,17 @@ spatial_risk_thresholds <- sfBay_aligned %>%
 
 ```{r include=FALSE}
 #color prep
-color_scale <- c("< One" = "#b6d7a8", #green
-                "> One" = "#fcc523", #yellow
-                "> Two" = "#bf8345", #orange
-                "> Three" = "#e06665", # red
-                "> Four" = "#ac5784") #purple
+color_scale <- c("< Thresholds" = "#b6d7a8", #green
+                "Investigative" = "#fcc523", #yellow
+                "Source tracking" = "#bf8345", #orange
+                "Impaired waterbody" = "#e06665", # red
+                "Pollution control measures" = "#ac5784") #purple
 
-shape_scale <- c("< One" = 21, #circle
-                "> One" = 22, #square
-                "> Two" = 23, #diamond
-                "> Three" = 24, # upside triangle
-                "> Four" = 25) #triangle
+shape_scale <- c("< Thresholds" = 21, #circle
+                "Investigative" = 22, #square
+                "Source tracking" = 23, #diamond
+                "Impaired waterbody" = 24, # upside triangle
+                "Pollution control measures" = 25) #triangle
 
 #get county outline
 sf <- ca_co %>% 
@@ -4195,7 +4195,7 @@ Are the general area classifgicaitons correct?
 ```{r}
 sanctuary <- mapping_data %>% 
   filter(Sampling.location == "National Marine Sancturay",
-         threshold == "> One")
+         threshold == "Investigative")
 
 mapview(sanctuary)
 ```
@@ -4271,7 +4271,7 @@ risk_smc <- ggmap(sf_basemap) +
   annotation_north_arrow(location = "bl", #north arrow
                          pad_x =  unit(0.5, "in"), pad_y = unit(0.5, "in"), #shift it so it doesn't plot on top of scale bar
                          style = north_arrow_fancy_orienteering()) + #change style of north arrow
-  labs(legend = "Threshold") +
+  #labs(legend = "Threshold") +
   xlab("Longitude (NAD83)") +
   ylab("Latitude (NAD83)") 
   #ggtitle("Microplastics Risk Exceedances in San Francisco Bay") +
@@ -4281,14 +4281,15 @@ risk_smc_white <- risk_smc +
   theme.type +
   theme(
         legend.background = element_rect(fill = "white", color = "black"),
-        legend.position = c(0.85, 0.87),
-        legend.key.size = unit(0.5, 'cm'))
+        legend.position = c(0.81, 0.88),
+        legend.key.size = unit(0.5, 'cm'),
+        legend.title = element_blank())
 
 risk_smc_dark <- risk_smc +  
   dark_theme_bw(base_size = 15) +
   theme(
         legend.background = element_rect(fill = "black", color = "white"),
-        legend.position = c(0.85, 0.87),
+        legend.position = c(0.81, 0.88),
         legend.key.size = unit(0.5, 'cm'))
 
 ggsave(plot = risk_smc_white,
