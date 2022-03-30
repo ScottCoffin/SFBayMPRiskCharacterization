@@ -4100,10 +4100,10 @@ ca_co <- USAboundaries::us_counties(resolution = "high", states = "CA")
 # convert point data
 spatial_risk_thresholds <- sfBay_aligned %>% 
     mutate(threshold = case_when(particle.L.master.50 < Threshold1_food ~ "< Thresholds",
-    particle.L.master.50 >= Threshold1_food & particle.L.master.50 < Threshold2_food ~ "Investigative",
-    particle.L.master.50 >= Threshold2_food & particle.L.master.50 < Threshold3_food ~ "Source tracking",
-    particle.L.master.50 >= Threshold3_food & particle.L.master.50 < Threshold4_food ~ "Impaired waterbody",
-    particle.L.master.50 >= Threshold4_food ~ "Pollution control measures")) %>% 
+    particle.L.master.50 >= Threshold1_food & particle.L.master.50 < Threshold2_food ~ "Investigative monitoring",
+    particle.L.master.50 >= Threshold2_food & particle.L.master.50 < Threshold3_food ~ "Discharge monitoring",
+    particle.L.master.50 >= Threshold3_food & particle.L.master.50 < Threshold4_food ~ "Management planning",
+    particle.L.master.50 >= Threshold4_food ~ "Source control measures")) %>% 
   #filter(!sampleID == "CB9 Jan 11 Total") %>% 
   filter(Sampling.apparatus == "Manta Trawl") %>% 
   filter(!str_detect(sampleID, "DUP")) %>% 
@@ -4146,16 +4146,16 @@ spatial_risk_thresholds <- sfBay_aligned %>%
 ```{r include=FALSE}
 #color prep
 color_scale <- c("< Thresholds" = "#b6d7a8", #green
-                "Investigative" = "#fcc523", #yellow
-                "Source tracking" = "#bf8345", #orange
-                "Impaired waterbody" = "#e06665", # red
-                "Pollution control measures" = "#ac5784") #purple
+                "Investigative monitoring" = "#fcc523", #yellow
+                "Discharge monitoring" = "#bf8345", #orange
+                "Management planning" = "#e06665", # red
+                "Source control measures" = "#ac5784") #purple
 
 shape_scale <- c("< Thresholds" = 21, #circle
-                "Investigative" = 22, #square
-                "Source tracking" = 23, #diamond
-                "Impaired waterbody" = 24, # upside triangle
-                "Pollution control measures" = 25) #triangle
+                "Investigative monitoring" = 22, #square
+                "Discharge monitoring" = 23, #diamond
+                "Management planning" = 24, # upside triangle
+                "Source control measures" = 25) #triangle
 
 #get county outline
 sf <- ca_co %>% 
@@ -4197,7 +4197,7 @@ Are the general area classifgicaitons correct?
 ```{r}
 sanctuary <- mapping_data %>% 
   filter(Sampling.location == "National Marine Sancturay",
-         threshold == "Investigative")
+         threshold == "Investigative monitoring")
 
 mapview(sanctuary)
 ```
@@ -4248,7 +4248,13 @@ labels <- labels %>%
 ```{r}
 # add points
 risk_smc <- ggmap(sf_basemap) + 
- 
+  #add labels for bay
+  geom_sf_text(aes(label = name),
+                data = labels,
+                inherit.aes = FALSE,
+               color = "gray10",
+               fontface = "italic",
+               alpha = 0.8) +
 #geom_sf(data = sf)# +
    geom_sf(data = #sfBay_aligned, 
            spatial_risk_thresholds,
@@ -4263,12 +4269,7 @@ risk_smc <- ggmap(sf_basemap) +
   scale_color_manual(name = "Threshold", values = color_scale) +
   scale_fill_manual(name = "Threshold", values = color_scale) +
   scale_shape_manual(name = "Threshold", values = shape_scale) +
-   #add labels for bay
-  geom_sf_text(aes(label = name),
-                data = labels,
-                inherit.aes = FALSE,
-               color = "gray10",
-               fontface = "italic") +
+  
   annotation_scale(location = "bl") + #add scale
   annotation_north_arrow(location = "bl", #north arrow
                          pad_x =  unit(0.5, "in"), pad_y = unit(0.5, "in"), #shift it so it doesn't plot on top of scale bar
