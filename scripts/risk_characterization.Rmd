@@ -30,10 +30,9 @@ library(plotly)
 library(gridExtra)
 library(grid)
 library(wesanderson)
-library(ggdark)
+#library(ggdark)
 library(broom)
 library(knitr)
-library(ggdark)
 library(viridis)
 library(ggpubr)
 library(ggsci)
@@ -54,22 +53,24 @@ library(msm)
 set.seed(1234) #reproducibility
 
 ###### Choose concentration alignment parameters####
-alpha.stormwater <- 1.87
-alpha.stormwater.sd <- 0.13
-alpha.stormwater.n <- 22
+alpha.stormwater <- 2.41
+alpha.stormwater.sd <- 0.22
+alpha.stormwater.n <- 411
 
-alpha.marine <- 2.00 #based on SFEI dataset
-alpha.marine.sd <- 0.15 #based on SFEI dataset
-alpha.marine.n <- 23
+alpha.marine <- 2.15#2.00 #based on SFEI dataset
+max.alpha.marine <- 3.5 #NEED TO CORRECT!!!!!
+min.alpha.marine <- 1.1 #NEED TO CORRECT!!!!!
+alpha.marine.sd <- 0.48 #based on SFEI dataset
+alpha.marine.n <- 1241
 #alpha.marine.rsd <- alpha.marine.se / alpha.marine
 
-alpha.wastewater <- 1.58
-alpha.wastewater.sd <- 0.11
-alpha.wastewater.n <- 20
+alpha.wastewater <- 2.41
+alpha.wastewater.sd <- 0.22
+alpha.wastewater.n <- 411
 
-alpha.sediment <- 2.10
-alpha.sediment.sd <- 0.12
-alpha.sediment.n <- 17
+alpha.sediment <- 2.89
+alpha.sediment.sd <- 0.44
+alpha.sediment.n <- 238
 
 alpha.fish <- 1.75
 alpha.fish.sd <- 0.17
@@ -543,6 +544,7 @@ write.csv(manta.site.plastic.percentages,
 ##### GRAPH
 ```{r}
 manta.site.plastic.percentages.graph <- manta.site.plastic.percentages %>% 
+   filter(site != "general") %>% 
   mutate(site_factor = fct_reorder(site, ave.proportion)) %>% 
   ggplot(aes(x  = ave.proportion, y = site_factor, fill = site_factor)) +
   geom_col() +
@@ -552,11 +554,11 @@ manta.site.plastic.percentages.graph <- manta.site.plastic.percentages %>%
                      limits = c(0,100),
                      labels = scales::percent_format(scale = 1)) +
   scale_fill_uchicago() +
-  scale_y_discrete(labels = c("Miscellanious other \n locations",
-                              "National Marine \n Sanctuary",
-                              "Central Bay",
-                              "South Bay",
-                              "Lower South Bay"                              )) +
+  # scale_y_discrete(labels = c("Miscellanious other \n locations",
+  #                             "National Marine \n Sanctuary",
+  #                             "Central Bay",
+  #                             "South Bay",
+  #                             "Lower South Bay"                              )) +
   theme.type +
   theme(legend.position = "none",
         axis.title.y = element_blank())
@@ -1648,11 +1650,11 @@ fiber_hist <- fiber %>%
   scale_x_continuous(limits = c(0, 100),
                      breaks = c(round(fiber5,0), round(fiber50,0), round(fiber95,0), 100)) +
   geom_vline(aes(xintercept = median(fiber.adjustment)),
-             linetype = "solid") +
+             linetype = "solid", color  = "black") +
   geom_vline(aes(xintercept = quantile(fiber.adjustment, 0.95)),
-             linetype = "dashed") +
+             linetype = "dashed", color  = "black") +
   geom_vline(aes(xintercept = quantile(fiber.adjustment, 0.05)),
-             linetype = "dashed") +
+             linetype = "dashed", color  = "black") +
   xlab("Manta Trawl Fiber Correction Factor") +
   ylab("Relative Density") +
   theme.type +
@@ -1760,8 +1762,8 @@ alpha <- data.frame(n = c(1:n),
 # parameters derived for SF Bay
 m.alpha =  alpha.marine
 sd.alpha = alpha.marine.sd
-min.alpha = 1.01 #from Kooi et al 2021
-max.alpha = 2.56 #from Kooi et al 2021
+min.alpha = min.alpha.marine #from Kooi et al 2021
+max.alpha = max.alpha.marine #from Kooi et al 2021
 
 #create truncated distribution of alpha values based on variation in SF Bay dataset
 alpha$alpha <- rnorm(n = n, mean = m.alpha, sd = sd.alpha)  #rtnorm(n = n, mean = m.alpha, sd = sd.alpha, lower = min.alpha, upper = max.alpha)
@@ -3878,8 +3880,8 @@ spatial_risk_thresholds <- sfBay_aligned %>%
            crs = 4326) # WGS 84
 
 #inspect
-st_crs(spatial_risk)
-st_crs(ca_co) # need to transform to CA Albers
+#st_crs(spatial_risk)
+#st_crs(ca_co) # need to transform to CA Albers
 ```
 
 

@@ -1,0 +1,414 @@
+---
+title: "MLE Fit Kooi Method"
+author: "Merel Kooi and Scott Coffin"
+date: "03/17/2022"
+output:   
+  html_document:
+    code_folding: hide
+    theme: journal
+    toc: yes
+    toc_float: yes
+    toc_depth: 6
+    number_sections: true
+    includes:
+     # after_body: footer.html
+  word_document:
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width=12, fig.height=8, fig.path='Figs/',
+                      warning=FALSE, message=FALSE,time_it = TRUE) #report
+```
+#Libraries
+```{r}
+library(dplyr)
+library(poweRlaw)
+library(ggplot2)
+library(ggpubr)
+library(tidyverse)
+```
+
+#Themes
+
+```{r}
+### theme plot ####
+p.theme <- theme_bw(base_size = 15) +
+  theme( 
+ # axis.text = element_text(size = 10, colour = "black"),
+  #strip.text.x = element_text(size = 10, color =  "black"),
+  #strip.text.y = element_text(size = 10),
+  #axis.title = element_text(size = 10),
+  panel.grid.major.x = element_blank(),
+  panel.grid.major.y = element_line(size = .1, color = "grey75"),
+  panel.grid.minor.y = element_line(size = .05, color = "grey85"),
+  panel.grid.minor = element_blank(),
+  strip.background = element_rect(fill = "white"),
+  panel.border = element_rect(colour="black", size=1, fill = NA),
+  panel.background = element_rect(fill = "white"),
+  axis.ticks.length=unit(0.1,"cm"),
+  axis.text.x  = element_text(angle = 0, hjust = 0.5),
+  legend.position = "none",
+  legend.box = "horizontal",
+  legend.background = element_rect(fill = alpha("pink", alpha = 0)),
+  legend.key = element_rect(fill = "white"),
+  #legend.key.height = unit(0.5, "cm"),
+  legend.key.width = unit(1.7, "cm"),
+ # legend.text = element_text(size = 10, colour = " black"),
+  legend.title = element_blank()
+)
+
+```
+
+# SF Bay Data
+## Import data
+```{r}
+#site-specific distribution data
+#SF bay data for all particles obtained via all sampling apparatus' for all matrices
+distributions <- readxl::read_xlsx("data/2020-09-08_MooreParticleData.xlsx") %>%
+  mutate(Size_um = 1000 * Length.mm) %>% 
+#annotate matrices
+    mutate(matrix = case_when(grepl("sediment", MatrixName) ~ "sediment",
+                            grepl("runoff", MatrixName) ~ "runoff",
+                            grepl("samplewater", MatrixName) ~ "samplewater",
+                            grepl("tissue", MatrixName) ~ "tissue",
+                            grepl("blankwater", MatrixName) ~ "blankwater",
+                            grepl("effluent", MatrixName) ~ "effluent")) %>% 
+  #annotate size cutoffs
+  mutate(lower_size_limit_um = as.numeric(case_when(grepl(">125",MatrixName) ~ "125",
+                                                 grepl(">355",MatrixName) ~ "355",
+                                                 grepl(">500",MatrixName) ~ "500",
+                                                 grepl(">1",MatrixName) ~ "1000"))) %>%
+  #annotate size cutoffs
+  mutate(upper_size_limit_um = as.numeric(case_when(grepl("125 um",MatrixName) ~ "125",
+                                                 grepl("355 um",MatrixName) ~ "355",
+                                                 grepl("500 um",MatrixName) ~ "500",
+                                                 grepl("1000 um",MatrixName) ~ "1000"))) %>% 
+  mutate_if(is.character,  as.factor)
+
+skimr::skim(distributions)
+```
+```{r}
+#This dataset contains a mixture of polymer types, including known plastics, known non-plastics, and unknowns. Summarize below
+sum <- distributions %>% 
+  group_by(PlasticType) %>% 
+  summarize(count = n()) %>% 
+  mutate(freq = formattable::percent(count/sum(count))) %>% 
+  arrange(desc(freq))
+
+sum
+```
+How many were unknown or natural?
+```{r}
+sum %>% 
+  mutate(general = case_when(
+    #reclassify with word extraction
+    grepl("Unknown", PlasticType, ignore.case = TRUE) ~ "unknown",
+    grepl("anthropogenic", PlasticType, ignore.case = TRUE) ~ "unknown",
+    grepl("natural", PlasticType, ignore.case = TRUE) ~ "natural",
+    #further manually reclassify
+    PlasticType == "Wool" ~ "natural",
+    PlasticType == "Cotton" ~ "natural",
+    PlasticType == "Cellulosic" ~ "natural",
+    PlasticType == "Glass" ~ "anthropogenic (not plastic)",
+    PlasticType == "Asphalt" ~ "anthropogenic (not plastic)",
+    PlasticType == "Not Characterized" ~ "Not Characterized"
+    )) %>% 
+  replace_na(list(general = "plastic")) %>% 
+  group_by(general) %>% 
+  summarize(freq_total = sum(freq)) %>% 
+  janitor::adorn_totals()
+```
+###Remove non-plastic particles and other unidentified matter
+To increase certainty in size distribution estimates, ONLY confirmed plastic particles will be used. 
+```{r}
+#list levels for plastic ID
+levels(distributions$PlasticType)
+
+distributions <- distributions %>% 
+     mutate(general = case_when(
+    grepl("Unknown", PlasticType, ignore.case = TRUE) ~ "unknown",
+    grepl("anthropogenic", PlasticType, ignore.case = TRUE) ~ "anthropogenic (not plastic)",
+    grepl("natural", PlasticType, ignore.case = TRUE) ~ "natural",
+    PlasticType == "Non-Synthetic Fiber (cotton, silk, wool)" ~ "natural",
+    PlasticType == "Wool" ~ "natural",
+    PlasticType == "Cotton" ~ "natural",
+    PlasticType == "Cellulosic" ~ "natural",
+    PlasticType == "Glass" ~ "anthropogenic (not plastic)",
+    PlasticType == "Asphalt" ~ "anthropogenic (not plastic)",
+    PlasticType == "Not Characterized" ~ "Not Characterized",
+    PlasticType == "Stearates, Lubricants" ~ "anthropogenic (not plastic)"
+    )) %>% 
+  replace_na(list(general = "plastic")) %>% 
+  #remove non-plastics
+  filter(general == "plastic") %>% 
+  drop_na(Size_um) %>% 
+  filter(Size_um > 0) %>% 
+    #filter(!str_detect(SampleID, "DUP")) %>% 
+  filter(!str_detect(SampleID, "blank")) %>% #remove blanks
+  #annotate season
+  mutate(season = case_when(grepl("Nov|Dec|Jan|Feb|Mar", SampleID, ignore.case = TRUE) ~ "wet",
+                            grepl("Aug|Sep", SampleID, ignore.case = TRUE) ~ "dry")) %>% 
+   mutate(site = case_when(
+    grepl("NB", SampleID,ignore.case = FALSE) ~ "North Bay",
+    grepl("CB", SampleID,ignore.case = FALSE) ~ "Central Bay",
+    grepl("SB10", SampleID,ignore.case = FALSE) ~ "South Bay",
+    grepl("SB11", SampleID,ignore.case = FALSE) ~ "South Bay",
+    grepl("SB12", SampleID,ignore.case = FALSE) ~ "South Bay",
+    grepl("SB13", SampleID,ignore.case = FALSE) ~ "South Bay",
+    grepl("LSB", SampleID,ignore.case = FALSE) ~ "Lower South Bay",
+    grepl("NMS", SampleID,ignore.case = FALSE) ~ "National Marine Sanctuary",
+    grepl("TB", SampleID,ignore.case = FALSE) ~ "Tomales Bay",
+    grepl("SC", SampleID,ignore.case = FALSE) ~ "general",
+    grepl("SUB", SampleID,ignore.case = FALSE) ~ "Suisin Bay",
+    grepl("SOSL", SampleID,ignore.case = FALSE) ~ "general",
+    grepl("Treasure", SampleID,ignore.case = FALSE) ~ "Central Bay",
+    grepl("SPB", SampleID,ignore.case = FALSE) ~ "San Pablo Bay",
+  ))
+
+skimr::skim(distributions)
+```
+### Data export
+```{r}
+write.csv(distributions,
+          "output/data/cleanParticleData.csv")
+```
+
+# Kooi Method
+```{r}
+set.seed(123) #reproducibility
+### Aim: 1 PSD per water type, with all data combined
+### First extrapolate to largest sample size
+### Second fit (bootstrap) power law distribution
+### Thirs plot one graph per water type with xmin & slope, both with 2x SD
+
+#rm(list=ls())
+
+####Manta trawl data should not contain any fibers###
+#first remove manta data and then recombine with other data
+manta <- distributions %>% 
+  filter(matrix == "samplewater",
+         MorphologicalCategory != "Fiber",
+         Size_um >= 125,
+         lower_size_limit_um >= 125)
+
+#split separately due to different detction limits
+tissue <- distributions %>% 
+  filter(matrix == "tissue",
+         Size_um >= 25) #tissue has 25 um mesh size
+
+sediment <- distributions %>% 
+  filter(matrix == "sediment",
+         Size_um >= 50) #45 um mesh size
+
+#other matrices should have 125 um limits
+runoff <- distributions %>% 
+  filter(matrix == "runoff",
+         Size_um >= 125 # 106 um mesh size for stormwater
+  )
+
+effluent <- distributions %>% 
+  filter(matrix == "effluent", 
+         Size_um >= 125 # 110 um mesh for wastewater
+  )
+# join matrices back together
+all <- rbind(manta, tissue, sediment, runoff, effluent)
+
+#filter large particles and rename
+sample_water <- all %>%
+  filter(Size_um <= 5000) %>%
+  mutate(matrix = as.factor(case_when(
+    matrix == 'samplewater' ~ 'surface water',
+    matrix == 'runoff' ~ 'stormwater',
+    matrix == 'effluent' ~ 'wastewater',
+    matrix == 'tissue' ~ 'tissue',
+    matrix == 'sediment' ~ 'sediment'
+    )
+  )) %>%
+  drop_na(matrix) %>% 
+   filter(matrix %in% c("tissue",
+                        "surface water",
+                        "stormwater",
+                        "sediment",
+                        "wastewater"
+                        )) %>%
+  droplevels()
+
+#### ORIGINAL CLEANUP CODE FROM MEREL ####
+# sample_water <- distributions[which(distributions$Size_um <= 5000 &
+#                                       distributions$lower_size_limit_um >= 125 &
+#                                       distributions$Size_um >= 125 &
+#                                       distributions$MorphologicalCategory != "Fiber"),]
+
+
+
+df <- sample_water #rename for ease
+
+df.bs.all <- data.frame(gof = numeric(), xmin = numeric(), pars = numeric(),
+                        ntail = numeric(),watertype = numeric())
+
+df.plot.all <- data.frame(x = numeric(), y = numeric(), watertype = numeric())
+```
+
+```{r}
+
+## bootstrap the results
+for(i in unique(df$matrix)){
+
+  df.temp <- df[which(df$matrix==i),]
+  ## make into continuous powerlaw object and estimate parameters
+  df.pl <- conpl$new(na.omit(df.temp$Size_um)) 
+  
+  ## bootstrap fit
+  bs <- bootstrap(df.pl, no_of_sims = 10, ###SHOULD BE 100
+                  threads = 2,
+                  xmax = 2E12)
+  bs.res <- bs$bootstraps
+  bs.res$watertype <- i
+  
+  ## save bootstrapped results in df 
+  df.bs.all <- rbind(df.bs.all, bs.res)
+  
+  ## CDF results from the conpl object (makes a figure - could be turned off?)
+  df.plot <- plot(df.pl)
+  df.plot$watertype <- i
+  
+  df.plot.all<- rbind(df.plot.all, df.plot)
+}
+
+
+## functions to calculate mean, min and max slope
+pwr <- function(x, alpha) (x/xmin.plot)^(-alpha+1)
+
+## size range for which to generate pwr results
+x <- seq(from = 25, #125, #25 um is lower limit for tissue, Merel used 125 um before
+           to = 5000, by = 1)
+
+## some empty dataframes to fill with the data that make it easier to plot
+
+df.bs.plot <- data.frame(mean.xmin = numeric(),
+                         sd.xmin = numeric(),
+                         mean.alpha = numeric(),
+                         sd.alpha = numeric(),
+                         xmin.plot = numeric(),
+                         watertype = numeric(),
+                         n.obs = numeric()
+)
+
+df.pwr.plot <- data.frame(x = numeric(),
+                          y = numeric(),
+                          y.min = numeric(),
+                          y.max = numeric(),
+                          watertype = numeric())
+
+df.pwr.plot.valid <- data.frame(x = numeric(),
+                                y = numeric(),
+                                y.min = numeric(),
+                                y.max = numeric(),
+                                watertype = numeric())
+
+
+for(i in unique(df.bs.all$watertype)){
+  
+  ## call upon results from previous for-loop (or imported after saving)
+  df.plot <- df.plot.all[which(df.plot.all$watertype == i),]
+  bs.res <- df.bs.all[which(df.bs.all$watertype == i), ]
+  
+  ## xmin value for which the fitted function is valid (the intercept - so you can plot)
+  ## first find the probability that maches with where the mean xmin intersects with the data
+  ## next calculate the xmin that would fit with this probability (where would it equal 1) 
+  P.xmin <- df.plot[which.min(abs(mean(bs.res$xmin)-df.plot$x)),]$y
+  xmin.plot = mean(bs.res$xmin)/(P.xmin^(1/(-mean(bs.res$pars) + 1)))
+  
+  bs.temp <- cbind(mean(bs.res$xmin), sd(bs.res$xmin), 
+                   mean(bs.res$pars), sd(bs.res$pars),
+                   xmin.plot, i, nrow(df.plot))
+  
+  colnames(bs.temp) <- c("mean.xmin", "sd.xmin", "mean.alpha", "sd.alpha", "xmin.plot", "watertype", "n.obs")
+  df.bs.plot <- rbind(df.bs.plot, bs.temp)
+  
+  ## dataframe with values based on fitted mean bs results
+  df.pwr <- data.frame(x = x, y = pwr(x, mean(bs.res$pars)))
+  df.pwr$y.min <- pwr(x, mean(bs.res$pars) - 2*sd(bs.res$pars))
+  df.pwr$y.max <- pwr(x, mean(bs.res$pars) + 2*sd(bs.res$pars))
+  df.pwr$watertype <- i
+  
+  ## two dataframes, one only until xmin, the other all the way to 10 um
+  df.pwr.valid <- df.pwr[which(df.pwr$x > mean(bs.res$xmin)),]
+  
+  df.pwr.plot <- rbind(df.pwr.plot, df.pwr)
+  df.pwr.plot.valid <- rbind(df.pwr.plot.valid, df.pwr.valid)
+}
+
+#lapply(df.bs.plot, class)
+
+# ## given this + facet_wrap, we should be able to make it one figure. 
+df.bs.plot[c("mean.xmin", "sd.xmin", "mean.alpha", "sd.alpha", "xmin.plot")] <- sapply(df.bs.plot[c("mean.xmin", "sd.xmin", "mean.alpha", "sd.alpha", "xmin.plot")], as.character)
+df.bs.plot[c("mean.xmin", "sd.xmin", "mean.alpha", "sd.alpha", "xmin.plot")] <- sapply(df.bs.plot[c("mean.xmin", "sd.xmin", "mean.alpha", "sd.alpha", "xmin.plot")], as.numeric)
+
+
+df.bs.plot$xmin.lim <- df.bs.plot$mean.xmin - 2*df.bs.plot$sd.xmin
+df.bs.plot[!(df.bs.plot$xmin.lim > 1), "xmin.lim"] <- 1
+
+write.csv(df.bs.plot,
+          "output/data/kooi/powerLaws.csv")
+
+df.bs.plot
+```
+## Plot statistical significance
+Since it is possible to fit a power law distribution to any data set, it is appropriate to test
+whether the observed data set actually follows a power law. Clauset et al. (2009) suggest that
+this hypothesis is tested using a goodness-of-fit test, via a bootstrapping procedure. This test
+generates a p -value that can be used to quantify the plausibility of the hypothesis. If the p -value
+is large, than any difference between the empirical data and the model can be explained with statistical fluctuations.
+If p ' 0, then the model does not provide a plausible fit to the data and
+another distribution may be more appropriate. In this scenario,
+H0 : data is generated from a power law distribution.
+H1 : data is not generated from a power law distribution.
+To test these hypothesis, we use the bootstrap p function
+
+
+```{r eval=FALSE, include=FALSE}
+bs_p = bootstrap_p(df.pl)
+plot(bs_p)
+```
+
+
+# Plot
+
+```{r}
+## Plot the results
+p <- ggplot(df.plot.all, aes(x = x, y = y)) +
+  geom_point(alpha = 0.5,
+             color = "black") +
+## add xmin range (rectangle) and mean (segment)
+  geom_rect(data = df.bs.plot, aes(x = NULL, y = NULL, xmin = xmin.lim, #mean.xmin - 2*sd.xmin,
+                                          xmax = mean.xmin + 2*sd.xmin,
+                                          ymin = 0, ymax = 1), alpha = 0.3, fill = "cadetblue4") +
+ geom_segment(data = df.bs.plot, aes(x = mean.xmin, xend = mean.xmin, 
+                                             y = 0, yend = 1), color = "cadetblue4", lwd = 1) +
+## add dotted slope that goes beyond xmin
+ geom_line(data = df.pwr.plot, aes(x = x, y = y), lwd = 1, color = "chocolate1", linetype = "dotted") +
+## add line + 2*SD that stops at xmin
+ geom_line(data = df.pwr.plot.valid, aes(x = x, y = y), lwd = 1, color = "chocolate3") +
+ geom_ribbon(data = df.pwr.plot.valid, aes(ymin = y.min, ymax = y.max), fill = "chocolate3", alpha = 0.3) +
+ xlab("Length (\U003BCm)") + ylab ("P(X >= x)") +
+  scale_y_log10() + 
+  scale_x_log10(breaks = c(125, 333, 1000, 3330, 5000)) +
+  coord_cartesian(ylim = c(1e-3,1), xlim = c(125, 5000)) + ## cut section
+  facet_wrap(~watertype, ncol = 2) +
+  p.theme +
+  theme(strip.text.x = element_text(size = 14, face = "bold"),
+          axis.text = element_text(size = 10, colour = "black"))
+# save
+ggsave(plot = p,
+       filename = "powerLaws.jpg",
+       path = "output/figures/kooi/", 
+       width = 12, height = 9, units = "in",
+       bg = "white",
+       dpi = 300)
+
+#print
+p
+```
+

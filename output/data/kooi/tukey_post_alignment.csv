@@ -1,0 +1,7 @@
+"","diff","lwr","upr","p adj"
+"surface water (1-L grab)-stormwater (depth-integrated perisaltic pump)",-36810.6590525197,-45134.9098143579,-28486.4082906814,1.94289029309402e-14
+"surface water (Manta Trawl)-stormwater (depth-integrated perisaltic pump)",-37140.4956125903,-45217.6807477836,-29063.3104773969,1.25455201782643e-14
+"wastewater (Composite)-stormwater (depth-integrated perisaltic pump)",-37132.5071789133,-46720.9362082789,-27544.0781495477,4.27435864480685e-14
+"surface water (Manta Trawl)-surface water (1-L grab)",-329.836560070636,-5501.36678325598,4841.6936631147,0.998361710825187
+"wastewater (Composite)-surface water (1-L grab)",-321.848126393606,-7632.23637821116,6988.54012542395,0.999458139421484
+"wastewater (Composite)-surface water (Manta Trawl)",7.98843367703012,-7019.78115236778,7035.75801972184,0.99999999062701
