@@ -49,7 +49,9 @@ library(msm)
 ```
 
 # Hazard Concentration and Alignment Parameters
-<!-- CF sd's based on https://nicoco007.github.io/Propagation-of-Uncertainty-Calculator/  -->
+
+THIS SCRIPT IS IDENTICAL TO risk_characterization_ZhuAlpha.Rmd EXCEPT FOR THE SURFACE WATER ALPHA VALUE - WHICH IS SPECIFIC TO KOOI ET AL (2021) AND DERIVED IN THAT PUBLICAITON.
+
 ```{r}
 set.seed(1234) #reproducibility
 
