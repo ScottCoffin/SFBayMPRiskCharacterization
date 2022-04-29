@@ -50,11 +50,35 @@ library(msm)
 
 # Hazard Concentration and Alignment Parameters
 
-THIS SCRIPT IS IDENTICAL TO risk_characterization_ZhuAlpha.Rmd EXCEPT FOR THE SURFACE WATER ALPHA VALUE - WHICH IS SPECIFIC TO KOOI ET AL (2021) AND DERIVED IN THAT PUBLICAITON.
+The following alpha values are site-specific for SFB and derived in fit_MLE_mantaData.R. Make sure to COMMENT OUT these values if using the Kooi et al values (see below).
+## SITE-SPECIFIC
+```{r eval=FALSE, include=FALSE}
+###### Choose concentration alignment parameters####
+alpha.stormwater <- 2.41
+alpha.stormwater.sd <- 0.22
+alpha.stormwater.n <- 411
 
+alpha.marine <- 2.15#2.00 #based on SFEI dataset
+alpha.marine.sd <- 0.48 #based on SFEI dataset
+alpha.marine.n <- 1241
+#alpha.marine.rsd <- alpha.marine.se / alpha.marine
+
+alpha.wastewater <- 2.41
+alpha.wastewater.sd <- 0.22
+alpha.wastewater.n <- 411
+
+alpha.sediment <- 2.89
+alpha.sediment.sd <- 0.44
+alpha.sediment.n <- 238
+
+alpha.fish <- 1.75
+alpha.fish.sd <- 0.17
+alpha.fish.n <- 15
+```
+
+## KOOI ET AL (2021)
+The following alpha values are from Kooi et al (2021). Make sure to COMMENT OUT these values if using the SFB site-specific values (see above).
 ```{r}
-set.seed(1234) #reproducibility
-
 ###### Choose concentration alignment parameters####
 alpha.stormwater <- 2.97
 alpha.stormwater.sd <- 0.83
@@ -64,24 +88,24 @@ alpha.marine.site <- 2.15 #based on MLE
 alpha.marine.sd.site <- 0.48 #based on MLE
 
 alpha.marine <- 2.07 #based on Kooi et al (2021)
-max.alpha.marine <- 3.5 
-min.alpha.marine <- 1.1 
 alpha.marine.sd <- 0.03 #based on Kooi et al (2021)
 alpha.marine.n <- 1241 #based on MLE
 #alpha.marine.rsd <- alpha.marine.se / alpha.marine
 
-alpha.wastewater <- 2.41
-alpha.wastewater.sd <- 0.14
+alpha.wastewater <- 2.54
+alpha.wastewater.sd <- 0.01
 alpha.wastewater.n <- 504
 
-alpha.sediment <- 2.90
-alpha.sediment.sd <- 0.41
+alpha.sediment <- 2.57
+alpha.sediment.sd <- 0.20
 alpha.sediment.n <- 238
 
-alpha.fish <- 2.26
-alpha.fish.sd <- 0.21
+alpha.fish <- 2.59
+alpha.fish.sd <- 0.04
 alpha.fish.n <- 212
+```
 
+```{r}
 #based on Kooi
 alpha.freshwater = 2.64 #table s4 from Kooi et al 2021 for freshwater surface water. length
 
@@ -181,12 +205,14 @@ Zhu, Xia, Keenan Munno, Jelena Grbic, Larissa Meghan Werbowski, Jacqueline Bikke
 #SF bay data from Zhu et al (2021)
 sfBay <- read.csv("data/SFBayData.csv", na.strings = "NA", stringsAsFactors = TRUE) %>%
   rename(sampleID = ï..sampleID,
-          x1M = Min.particle.size.um,
+         #x1M = Min.particle.size.um,
          x2M = Max.particle.size.um) %>% 
   mutate(Sample.Type = "sample") %>% 
   mutate(Sampling.apparatus = case_when(
     Sampling.apparatus == "24-hr pipe" ~ "depth-integrated perisaltic pump",
-    TRUE ~ as.character(Sampling.apparatus)))
+    TRUE ~ as.character(Sampling.apparatus))) %>% 
+  mutate(x1M = case_when(Sampling.apparatus == "1-L grab" ~ 50,
+         TRUE ~ as.numeric(Min.particle.size.um)))
 ```
 
 ## Cleanup
@@ -408,7 +434,8 @@ grab_with_dates_new <- grab_with_dates %>%
          "longitude" = "longitude_grab")
 
 #bind
-sfBay2 <- rbind(sfBay_noGrab, grab_with_dates_new) %>% 
+sfBay2 <- rbind(sfBay_noGrab %>%  dplyr::select(c(specific.location, System, general.location, latitude, longitude, particles.L.blank.corrected, particles.fish.blank.corrected, particles.kg.blank.corrected, sample.matrix, sample.matrix.specific, Sampling.apparatus, x1M, x2M, Sample.Type, sampleID)), 
+                grab_with_dates_new) %>% 
   #annotate wet/dry
   mutate(season = case_when(grepl("Nov|Dec|Jan|Feb|Mar", sampleID, ignore.case = TRUE) ~ "wet",
                             grepl("Aug|Sep", sampleID, ignore.case = TRUE) ~ "dry"))
@@ -1684,7 +1711,7 @@ fiber_hist
 
 
 ## Plastic Percentage
-
+### Manta Trawl
 #### Fit Distributions
 ```{r}
 plastic.proportions.manta <- manta.sample.plastic.percentages$freq / 1000
@@ -1766,10 +1793,235 @@ plastic_hist <- plastic %>%
   
 plastic_hist
 ```
+### 1-L Grab
+#### Data Prep
+```{r}
+#get plastic particle count per sample (for ANOVA)
+grab.sample.plastic.percentages <- proportions_samples_allMatrices %>% 
+  filter(SampleMatrix == "sw") %>%  #surface water 1-L grab
+  mutate(freq = 100 * proportion)
+grab.sample.plastic.percentages
+```
+
+#### Fit Distributions
+```{r}
+plastic.proportions.grab <- grab.sample.plastic.percentages$freq / 1000
+
+#determine possible candidates with descdist
+cullen.frey.plastic.grab <- descdist(plastic.proportions.grab, discrete = FALSE, boot =1000)
+cullen.frey.plastic.grab
+```
+
+```{r}
+plastic.proprotions.fit.beta.grab <- fitdist(plastic.proportions.grab, "beta")
+plot(plastic.proprotions.fit.beta.grab)
+summary(plastic.proprotions.fit.beta.grab)
+```
+
+
+```{r}
+plastic.func.grab <- function(F){
+  success <- FALSE
+  while(!success){
+    P = rbeta(n = 1,
+              shape1 = plastic.proprotions.fit.beta.grab$estimate[1],
+              shape2 = plastic.proprotions.fit.beta.grab$estimate[2])
+    success <- P < 0.1} #upper limit of 1 (values were divied by ten for compuation above)
+    return(P)
+  }
+  
+plastic.grab <- data.frame(plastic.coefficent = numeric(0));
+
+for(i in 1:n){
+  X <- plastic.func.grab()
+  plastic.grab <- rbind(plastic.grab, X)
+}
+
+colnames(plastic.grab) <- c("plastic.proportion")
+  
+plastic.grab$plastic.proportion <- plastic.grab$plastic.proportion * 10 # correct from transoformation above
+
+summary(plastic.grab$plastic.proportion)
+```
+
+### Wastewater
+#### Data Prep
+```{r}
+#get plastic particle count per sample (for ANOVA)
+wastewater.sample.plastic.percentages <- proportions_samples_allMatrices %>% 
+  filter(SampleMatrix == "eff") %>%  #wastewater
+  mutate(freq = 100 * proportion)
+wastewater.sample.plastic.percentages
+```
+
+#### Fit Distributions
+```{r}
+plastic.proportions.wastewater <- wastewater.sample.plastic.percentages$freq / 1000
+
+#determine possible candidates with descdist
+cullen.frey.plastic.wastewater <- descdist(plastic.proportions.wastewater, discrete = FALSE, boot =1000)
+cullen.frey.plastic.wastewater
+```
+
+```{r}
+plastic.proprotions.fit.beta.wastewater <- fitdist(plastic.proportions.wastewater, "beta")
+plot(plastic.proprotions.fit.beta.wastewater)
+summary(plastic.proprotions.fit.beta.wastewater)
+```
+
+
+```{r}
+plastic.func.wastewater <- function(F){
+  success <- FALSE
+  while(!success){
+    P = rbeta(n = 1,
+              shape1 = plastic.proprotions.fit.beta.wastewater$estimate[1],
+              shape2 = plastic.proprotions.fit.beta.wastewater$estimate[2])
+    success <- P < 0.1} #upper limit of 1 (values were divied by ten for compuation above)
+    return(P)
+  }
+  
+plastic.wastewater <- data.frame(plastic.coefficent = numeric(0));
+
+for(i in 1:n){
+  X <- plastic.func.wastewater()
+  plastic.wastewater <- rbind(plastic.wastewater, X)
+}
+
+colnames(plastic.wastewater) <- c("plastic.proportion")
+  
+plastic.wastewater$plastic.proportion <- plastic.wastewater$plastic.proportion * 10 # correct from transoformation above
+
+summary(plastic.wastewater$plastic.proportion)
+```
+
+### sediment
+#### Data Prep
+```{r}
+#get plastic particle count per sample (for ANOVA)
+sediment.sample.plastic.percentages <- proportions_samples_allMatrices %>% 
+  filter(SampleMatrix == "sed") %>%  #sediment
+  mutate(freq = 100 * proportion)
+sediment.sample.plastic.percentages
+```
+
+#### Fit Distributions
+```{r}
+plastic.proportions.sediment <- sediment.sample.plastic.percentages$freq / 1000
+
+#determine possible candidates with descdist
+cullen.frey.plastic.sediment <- descdist(plastic.proportions.sediment, discrete = FALSE, boot =1000)
+cullen.frey.plastic.sediment
+```
+
+```{r}
+plastic.proprotions.fit.lnorm.sediment <- fitdist(plastic.proportions.sediment, "lnorm")
+plot(plastic.proprotions.fit.lnorm.sediment)
+summary(plastic.proprotions.fit.lnorm.sediment)
+```
+
+
+```{r}
+plastic.func.sediment <- function(F){
+  success <- FALSE
+  while(!success){
+    P = rlnorm(n = 1,
+              meanlog = plastic.proprotions.fit.lnorm.sediment$estimate[1],
+              sdlog = plastic.proprotions.fit.lnorm.sediment$estimate[2])
+    success <- P < 0.1} #upper limit of 1 (values were divied by ten for compuation above)
+    return(P)
+  }
+  
+plastic.sediment <- data.frame(plastic.coefficent = numeric(0));
+
+for(i in 1:n){
+  X <- plastic.func.sediment()
+  plastic.sediment <- rbind(plastic.sediment, X)
+}
+
+colnames(plastic.sediment) <- c("plastic.proportion")
+  
+plastic.sediment$plastic.proportion <- plastic.sediment$plastic.proportion * 10 # correct from transoformation above
+
+summary(plastic.sediment$plastic.proportion)
+```
+
+### fish
+#### Data Prep
+```{r}
+#get plastic particle count per sample (for ANOVA)
+fish.sample.plastic.percentages <- proportions_samples_allMatrices %>% 
+  filter(SampleMatrix == "fish") %>%  #fish
+  mutate(freq = 100 * proportion)
+fish.sample.plastic.percentages
+```
+
+#### Fit Distributions
+```{r}
+plastic.proportions.fish <- fish.sample.plastic.percentages$freq / 1000
+
+#determine possible candidates with descdist
+cullen.frey.plastic.fish <- descdist(plastic.proportions.fish, discrete = FALSE, boot =1000)
+cullen.frey.plastic.fish
+```
+
+```{r}
+plastic.proprotions.fit.beta.fish <- fitdist(plastic.proportions.fish, "beta")
+plot(plastic.proprotions.fit.beta.fish)
+summary(plastic.proprotions.fit.beta.fish)
+```
+
+
+```{r}
+plastic.func.fish <- function(F){
+  success <- FALSE
+  while(!success){
+    P = rbeta(n = 1,
+              shape1 = plastic.proprotions.fit.beta.fish$estimate[1],
+              shape2 = plastic.proprotions.fit.beta.fish$estimate[2])
+    success <- P < 0.1} #upper limit of 1 (values were divied by ten for compuation above)
+    return(P)
+  }
+  
+plastic.fish <- data.frame(plastic.coefficent = numeric(0));
+
+for(i in 1:n){
+  X <- plastic.func.fish()
+  plastic.fish <- rbind(plastic.fish, X)
+}
+
+colnames(plastic.fish) <- c("plastic.proportion")
+  
+plastic.fish$plastic.proportion <- plastic.fish$plastic.proportion * 10 # correct from transoformation above
+
+summary(plastic.fish$plastic.proportion)
+```
+
+### Report
+```{r}
+proportions.all <- rbind(plastic.grab %>% mutate(matrix = "grab"),
+      plastic.wastewater  %>% mutate(matrix = "wastewater"),
+      plastic.sediment %>% mutate(matrix = "sediment"),
+      plastic.fish %>% mutate(matrix = "fish"))
+
+#would ordinarily just join thjis to the CF df, but it creates a vector that exceeds memory limits (wtf.)
+
+proportions_probabilistic <-  proportions.all %>% 
+  group_by(matrix) %>% 
+  summarize(plastic.proportion.05 = quantile(plastic.proportion, 0.05),
+            plastic.proportion.50 = quantile(plastic.proportion, 0.50),
+            plastic.proportion.95 = quantile(plastic.proportion, 0.95)) 
+
+write.csv(proportions_probabilistic,
+          "output/data/proportions_probabilistic.csv")
+proportions_probabilistic
+```
+
 ## Alignment Correction Factor
 Since the alpha value was derived using a log-log linear regression, we can assume the distribution is log-normally distributed.
 
 ### Alphas
+#### Surface Water
 ```{r}
 #alpha dataframe
 alpha <- data.frame(n = c(1:n),
@@ -1781,15 +2033,16 @@ sd.alpha = alpha.marine.sd
 min.alpha = min.alpha.marine #from Kooi et al 2021
 max.alpha = max.alpha.marine #from Kooi et al 2021
 
-#create truncated distribution of alpha values based on variation in SF Bay dataset
-alpha$alpha <- rnorm(n = n, mean = m.alpha, sd = sd.alpha)  #rtnorm(n = n, mean = m.alpha, sd = sd.alpha, lower = min.alpha, upper = max.alpha)
+#create distribution of alpha values based on variation in SF Bay dataset
+alpha$alpha <- rnorm(n = n, mean = m.alpha, sd = sd.alpha)
+alpha <- alpha %>%  mutate(matrix = "surface")
 
 #define for plotting
 alpha5 <- as.vector(quantile(alpha$alpha, 0.05)[1])
 alpha50 <- as.vector(quantile(alpha$alpha, 0.50)[1])
 alpha95 <- as.vector(quantile(alpha$alpha, 0.95)[1])
 
-#plot
+#plot for surface water ONLY
 alpha_hist <- alpha %>% 
   ggplot(aes(x = alpha)) +
   geom_density(fill = "purple",
@@ -1813,17 +2066,120 @@ alpha_hist <- alpha %>%
   
 alpha_hist
 ```
+#### Other Matrices
+```{r}
+#### Manta ####
+#same as grab so just duplicate df and annotate with x1M#
+alpha.grab.df <- alpha %>% 
+  mutate(matrix = "grab") %>% 
+  mutate(x1M = sfBay %>% 
+           filter(Sampling.apparatus == "1-L grab") %>% 
+           summarize(x1M = mean(x1M)) %>%
+           pull(x1M))
+
+alpha.manta.df <- alpha %>% 
+  mutate(matrix = "manta") %>% 
+  mutate(x1M = sfBay %>% 
+           filter(Sampling.apparatus == "Manta Trawl") %>% 
+           summarize(x1M = mean(x1M)) %>%
+           pull(x1M))
+
+#### STORMWATER ####
+#alpha dataframe
+alpha.stormwater.df <- data.frame(n = c(1:n),
+                    alpha = numeric(n))
+
+m.alpha =  alpha.stormwater
+sd.alpha = alpha.stormwater.sd
+
+#create distribution of alpha values 
+alpha.stormwater.df$alpha <- rnorm(n = n, mean = m.alpha, sd = sd.alpha)
+alpha.stormwater.df <- alpha.stormwater.df %>% 
+  mutate(matrix = "stormwater") %>% 
+  mutate(x1M = sfBay %>% filter(sample.matrix.specific == "stormwater") %>%  summarize(x1M = mean(x1M)) %>%  pull(x1M))
+
+#define for plotting
+alpha5.stormwater <- as.vector(quantile(alpha.stormwater.df$alpha, 0.05)[1])
+alpha50.stormwater <- as.vector(quantile(alpha.stormwater.df$alpha, 0.50)[1])
+alpha95.stormwater <- as.vector(quantile(alpha.stormwater.df$alpha, 0.95)[1])
+
+#### wastewater ####
+#alpha dataframe
+alpha.wastewater.df <- data.frame(n = c(1:n),
+                    alpha = numeric(n))
+
+m.alpha =  alpha.wastewater
+sd.alpha = alpha.wastewater.sd
+
+#create distribution of alpha values 
+alpha.wastewater.df$alpha <- rnorm(n = n, mean = m.alpha, sd = sd.alpha)
+alpha.wastewater.df <- alpha.wastewater.df %>%  mutate(matrix = "wastewater") %>% 
+  mutate(x1M = sfBay %>% filter(sample.matrix.specific == "wastewater") %>%  summarize(x1M = mean(x1M)) %>%  pull(x1M))
+
+#define for plotting
+alpha5.wastewater <- as.vector(quantile(alpha.wastewater.df$alpha, 0.05)[1])
+alpha50.wastewater <- as.vector(quantile(alpha.wastewater.df$alpha, 0.50)[1])
+alpha95.wastewater <- as.vector(quantile(alpha.wastewater.df$alpha, 0.95)[1])
+
+#### sediment ####
+#alpha dataframe
+alpha.sediment.df <- data.frame(n = c(1:n),
+                    alpha = numeric(n))
+
+m.alpha =  alpha.sediment
+sd.alpha = alpha.sediment.sd
+
+#create distribution of alpha values 
+alpha.sediment.df$alpha <- rnorm(n = n, mean = m.alpha, sd = sd.alpha)
+alpha.sediment.df <- alpha.sediment.df %>%  mutate(matrix = "sediment") %>% 
+  mutate(x1M = sfBay %>% filter(sample.matrix.specific == "sediment") %>%  summarize(x1M = mean(x1M)) %>%  pull(x1M))
+
+#define for plotting
+alpha5.sediment <- as.vector(quantile(alpha.sediment.df$alpha, 0.05)[1])
+alpha50.sediment <- as.vector(quantile(alpha.sediment.df$alpha, 0.50)[1])
+alpha95.sediment <- as.vector(quantile(alpha.sediment.df$alpha, 0.95)[1])
+
+#### fish ####
+#alpha dataframe
+alpha.fish.df <- data.frame(n = c(1:n),
+                    alpha = numeric(n))
+
+m.alpha =  alpha.fish
+sd.alpha = alpha.fish.sd
+
+#create distribution of alpha values 
+alpha.fish.df$alpha <- rnorm(n = n, mean = m.alpha, sd = sd.alpha)
+alpha.fish.df <- alpha.fish.df %>%  mutate(matrix = "fish") %>% 
+  mutate(x1M = sfBay %>% filter(sample.matrix == "fish") %>%  summarize(x1M = mean(x1M)) %>%  pull(x1M))
+
+#define for plotting
+alpha5.fish <- as.vector(quantile(alpha.fish.df$alpha, 0.05)[1])
+alpha50.fish <- as.vector(quantile(alpha.fish.df$alpha, 0.50)[1])
+alpha95.fish <- as.vector(quantile(alpha.fish.df$alpha, 0.95)[1])
+```
+
 ### Correction Factors
 ```{r}
+#Combine alpha dataframes
+alpha.df <- rbind(alpha.grab.df, 
+                  alpha.manta.df,
+                  alpha.stormwater.df,
+                  alpha.wastewater.df,
+                  alpha.sediment.df,
+                  alpha.fish.df) %>% 
 # derive correction factors based on alpha values
-alpha2 <- alpha %>% 
   mutate(CF = CFfnx(a = alpha,
                     x2D = x2D_set,
                     x1D = x1D_set,
-                    x2M = 5000,
-                    x1M = 333)) 
+                    x2M = x2D_set,
+                    x1M = x1M)) 
 
-#define for plotting
+```
+
+```{r}
+#define for plotting (manta trawl only)
+alpha2 <- alpha.df %>% 
+  filter(matrix == "manta")
 CF5 <- as.vector(quantile(alpha2$CF, 0.05)[1])
 CF50 <- as.vector(quantile(alpha2$CF, 0.50)[1])
 CF95 <- as.vector(quantile(alpha2$CF, 0.95)[1])
@@ -1835,6 +2191,7 @@ CFdf
 ```
 
 ```{r}
+
 #plot
 CF_hist <- alpha2 %>% 
   ggplot(aes(x = CF)) +
@@ -1864,6 +2221,7 @@ CF_hist
 
 
 ## Combine distributions
+### Manta Trawl
 ```{r}
 #bind to distributino data frame
 distributions_final <- cbind(distributions, alpha2)
@@ -1967,6 +2325,116 @@ ggsave(plot =cullenFreys,
 
 ```
 
+### Other Matrices
+```{r} 
+# would ordinarily do this more elegantly using a join fnx, but it uses more memory than my laptop has (wtf!)
+
+#### FISH ###
+#bind with proportions data
+fish.probabilistic <- cbind(plastic.fish, alpha.fish.df) %>% 
+  #calculate CF
+  mutate(CF = CFfnx(a = alpha,
+                    x1D = x1D_set,
+                    x2D = x2D_set,
+                    x1M = x1M,
+                    x2M = x2D_set)) %>% 
+  #calculate combined correction factor
+  mutate(combined.corrections = plastic.proportion * CF) %>% 
+  mutate(fiber.proportion = NA)
+
+#### sediment ###
+#bind with proportions data
+sediment.probabilistic <- cbind(plastic.sediment, alpha.sediment.df) %>% 
+  #calculate CF
+  mutate(CF = CFfnx(a = alpha,
+                    x1D = x1D_set,
+                    x2D = x2D_set,
+                    x1M = x1M,
+                    x2M = x2D_set)) %>% 
+  #calculate combined correction factor
+  mutate(combined.corrections = plastic.proportion * CF) %>% 
+  mutate(fiber.proportion = NA)
+
+#### wastewater ###
+#bind with proportions data
+wastewater.probabilistic <- cbind(plastic.wastewater, alpha.wastewater.df) %>% 
+  #calculate CF
+  mutate(CF = CFfnx(a = alpha,
+                    x1D = x1D_set,
+                    x2D = x2D_set,
+                    x1M = x1M,
+                    x2M = x2D_set)) %>% 
+  #calculate combined correction factor
+  mutate(combined.corrections = plastic.proportion * CF) %>% 
+  mutate(fiber.proportion = NA)
+
+#### grab ###
+#bind with proportions data
+grab.probabilistic <- cbind(plastic.grab, alpha.grab.df) %>% 
+  #calculate CF
+  mutate(CF = CFfnx(a = alpha,
+                    x1D = x1D_set,
+                    x2D = x2D_set,
+                    x1M = x1M,
+                    x2M = x2D_set)) %>% 
+  #calculate combined correction factor
+  mutate(combined.corrections = plastic.proportion * CF) %>% 
+  mutate(fiber.proportion = NA)
+
+#### stormwater ###
+#no proportions data available
+stormwater.probabilistic <- alpha.stormwater.df %>%   
+  #calculate CF
+  mutate(CF = CFfnx(a = alpha,
+                    x1D = x1D_set,
+                    x2D = x2D_set,
+                    x1M = x1M,
+                    x2M = x2D_set)) %>% 
+  #calculate combined correction factor
+  mutate(combined.corrections = CF) %>% 
+  mutate(plastic.proportion = NA) %>% 
+  mutate(fiber.proportion = NA)
+
+#combine all
+combined.all <- rbind(fish.probabilistic,
+      sediment.probabilistic,
+      wastewater.probabilistic,
+      grab.probabilistic,
+      stormwater.probabilistic,
+      combined.distributions %>%   # manta trawl
+        mutate(matrix = "manta") %>% 
+        mutate(x1M = 333) %>%  #333 um mesh for manta
+        dplyr::select(c(plastic.proportion, n, alpha, matrix, x1M, CF, combined.corrections, fiber.proportion)) 
+      ) 
+
+#print correction factors
+all_correction_factors_probabilistic <- combined.all %>% 
+  group_by(matrix) %>% 
+  summarize(x1M = mean(x1M),
+            alpha.05 = quantile(alpha, 0.05),
+            alpha.50 = quantile(alpha, 0.50),
+            alpha.95 = quantile(alpha, 0.95),
+            CF.05 = quantile(CF, 0.05),
+            CF.50 = quantile(CF, 0.50),
+            CF.95 = quantile(CF, 0.95),
+            plastic.proportion.05 = quantile(plastic.proportion, 0.05, na.rm = TRUE),
+            plastic.proportion.50 = quantile(plastic.proportion, 0.50, na.rm = TRUE),
+            plastic.proportion.95 = quantile(plastic.proportion, 0.95, na.rm = TRUE),
+            fiber.proportion.05 = quantile(fiber.proportion, 0.05, na.rm = TRUE),
+            fiber.proportion.50 = quantile(fiber.proportion, 0.50, na.rm = TRUE),
+            fiber.proportion.95 = quantile(fiber.proportion, 0.95, na.rm = TRUE),
+            combined.05 = quantile(combined.corrections, 0.05),
+            combined.50 = quantile(combined.corrections, 0.50),
+            combined.95 = quantile(combined.corrections, 0.95),
+            )
+
+#print
+
+write.csv(all_correction_factors_probabilistic,
+          "output/data/kooi/all_correction_factors_probabilistic.csv")
+
+all_correction_factors_probabilistic
+```
 
 
 # APPLY CORRECTION FACTORS 
@@ -2959,30 +3427,24 @@ barplot <- sensitivity.analysis.manta %>%
   mutate(frequency.25 = as.numeric(particle.L.master.25.percent)) %>% 
   mutate(frequency.75 = as.numeric(particle.L.master.75.percent)) %>% 
   mutate(frequency_upper = as.numeric(particle.L.master.95.percent)) %>% 
-  mutate(threshold = case_when(aboveThreshold == "belowThreshold1" ~ "< Threshold One",
-                               aboveThreshold == "aboveThreshold1" ~ "> Threshold One",
-                               aboveThreshold == "aboveThreshold2" ~ "> Threshold Two",
-                               aboveThreshold == "aboveThreshold3" ~ "> Threshold Three",
-                               aboveThreshold == "aboveThreshold4" ~ "> Threshold Four")) %>% 
-  ggplot(aes(x = factor(threshold, level = c("< Threshold One",
-                                             "> Threshold One",
-                                             "> Threshold Two",
-                                             "> Threshold Three",
-                                             "> Threshold Four")))) +
+  mutate(threshold = case_when(aboveThreshold == "belowThreshold1" ~ "< Threshold One (0.3)",
+                               aboveThreshold == "aboveThreshold1" ~ ">= Threshold One (0.3)",
+                               aboveThreshold == "aboveThreshold2" ~ ">= Threshold Two (3.0)",
+                               aboveThreshold == "aboveThreshold3" ~ ">= Threshold Three (5.0)",
+                               aboveThreshold == "aboveThreshold4" ~ ">= Threshold Four (34)")) %>% 
+  ggplot(aes(x = factor(threshold, level = c("< Threshold One (0.3)",
+                                             ">= Threshold One (0.3)",
+                                             ">= Threshold Two (3.0)",
+                                             ">= Threshold Three (5.0)",
+                                             ">= Threshold Four (34)")))) +
   geom_col(aes(y = frequency, fill = threshold)) +
-  #95th
-  geom_errorbar(aes(ymin = frequency_lower, ymax = frequency_upper),
-                linetype = "dashed", width = 1.0, alpha = 0.7, color = "black") +
-  #25th and 75th percetnile
-  geom_errorbar(aes(ymin = frequency.25, ymax = frequency.75),
-                linetype = "solid", width = 0.5, alpha = 1, color = "black") +
   scale_y_continuous(limits = c(0,1),
                      labels = scales::percent) +
-  scale_fill_manual(values = c("< Threshold One" = "#b6d7a8", #green
-                                "> Threshold One" = "#fcc523", #yellow
-                               "> Threshold Two" = "#bf8345", #orange
-                                "> Threshold Three" = "#e06665", # red
-                               "> Threshold Four" = "#ac5784" #purple
+  scale_fill_manual(values = c("< Threshold One (0.3)" = "#b6d7a8", #green
+                                ">= Threshold One (0.3)" = "#fcc523", #yellow
+                               ">= Threshold Two (3.0)" = "#bf8345", #orange
+                                ">= Threshold Three (5.0)" = "#e06665", # red
+                               ">= Threshold Four (34)" = "#ac5784" #purple
                                )) +
 
   coord_flip() +
@@ -2990,6 +3452,12 @@ barplot <- sensitivity.analysis.manta %>%
 
 #make light mode and dark mode
 barplot_white <- barplot +
+   #95th
+  geom_errorbar(aes(ymin = frequency_lower, ymax = frequency_upper),
+                linetype = "dashed", width = 1.0, alpha = 0.7, color = "black") +
+  #25th and 75th percetnile
+  geom_errorbar(aes(ymin = frequency.25, ymax = frequency.75),
+                linetype = "solid", width = 0.5, alpha = 1, color = "black") +
   theme.type +
   theme(axis.title.y = element_blank(),
         axis.text.y = element_text(color = c("#90ab85", #green
@@ -3005,6 +3473,12 @@ barplot_white <- barplot +
 
 #dark mode
 barplot_dark <- barplot +
+   #95th
+  geom_errorbar(aes(ymin = frequency_lower, ymax = frequency_upper),
+                linetype = "dashed", width = 1.0, alpha = 0.7, color = "white") +
+  #25th and 75th percetnile
+  geom_errorbar(aes(ymin = frequency.25, ymax = frequency.75),
+                linetype = "solid", width = 0.5, alpha = 1, color = "white") +
   dark_theme_bw(base_size = 15) +
   theme(plot.title = element_text(hjust = 0.5),
         plot.subtitle = element_text(hjust = 0.5),

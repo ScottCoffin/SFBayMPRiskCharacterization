@@ -60,8 +60,6 @@ alpha.stormwater.sd <- 0.22
 alpha.stormwater.n <- 411
 
 alpha.marine <- 2.15#2.00 #based on SFEI dataset
-max.alpha.marine <- 3.5 #NEED TO CORRECT!!!!!
-min.alpha.marine <- 1.1 #NEED TO CORRECT!!!!!
 alpha.marine.sd <- 0.48 #based on SFEI dataset
 alpha.marine.n <- 1241
 #alpha.marine.rsd <- alpha.marine.se / alpha.marine
