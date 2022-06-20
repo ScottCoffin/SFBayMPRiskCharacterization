@@ -2800,6 +2800,14 @@ ggsave(plot = boxplot,
        width = 12, height = 9, units = "in",
        bg = "white",
        dpi = 300)
+
+
+ggsave(plot = boxplot,
+       filename = "boxplot.tiff",
+       path = "output/figures/kooi/", 
+       width = 12, height = 9, units = "in",
+       bg = "white",
+       dpi = 300)
 ```
 ## ANOVA between water matrices for alignment
 ```{r}
