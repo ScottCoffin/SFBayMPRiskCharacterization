@@ -4763,11 +4763,13 @@ mapview(sanctuary)
 ## Basemap with ggmap
 ```{r include=FALSE}
 library(ggmap)
-#register with googlemaps
-#register_google(key = "AIzaSyBiSSZoq5zG-cY-SLbofYpns4bhXcsjkQQ", write= TRUE)
+#register with googlemaps through scoff003@ucr.edu
+## NOTE: necessary to create 90-d free trial with Google Cloud, enable billing, and add Geocoding, Geolocaiton, and Static Map APIs#
+register_google(key = "AIzaSyDzFuDj1gAUNk6bXnoLMfRPoNvoHtKNW4Y", write= TRUE)
 
 #SF basemap
-sf_basemap <- get_map(location = c(lon = -122.352541, lat = 37.838441), zoom = 9, maptype = 'terrain-background', source = 'stamen')
+sf_basemap <- get_map(location = c(lon = -122.352541, lat = 37.838441),
+                      zoom = 9, maptype = 'terrain-background', source = 'stamen')
 ggmap(sf_basemap)
 
 sf_basemap_watercolor <- get_map(location = c(lon = -122.352541, lat = 37.838441), zoom = 9, maptype = 'watercolor', source = 'stamen')
@@ -4775,6 +4777,10 @@ ggmap(sf_basemap_watercolor)
 
 sf_basemap_terrain_bw <- get_map(location = c(lon = -122.352541, lat = 37.838441), zoom = 9, maptype = 'terrain-background', source = 'google', color = "bw")
 ggmap(sf_basemap_terrain_bw)
+
+sf_basemap_toner_background <- get_map(location = c(lon = -122.352541, lat = 37.838441), zoom = 9, maptype = 'toner-background', source = 'google', color = "bw")
+
+ggmap(sf_basemap_toner_background)
 ```
 ## Ggplot
 ```{r}
@@ -4871,8 +4877,163 @@ ggsave(plot = risk_smc_dark,
 risk_smc
 ```
 
+##Intersect with Integrated Report Regions
+```{r}
+library(spatialEco)
+#import data#
+IR_shp <- st_read(dsn = "data/IR_shp/CalWQA_GeoWQA_Poly_Excerpt.shp")
+
+#ensure polygons are valid
+st_is_valid(IR_shp)
+#need to make valid
+IR_shp <- st_make_valid(IR_shp)
+
+#now ensure CRS is same between points and polygons
+IR_shp <- st_set_crs(IR_shp, 4326)
+
+#intersect polygons and points
+#intersect <- st_intersection(IR_shp, mapping_data) #keeps points geomtry, but we want polygons preserved
+
+intersect <- st_intersection(mapping_data, IR_shp)
+intersect <- as.data.frame(intersect) %>% 
+   mutate(threshold1 = case_when(
+    particles.L..median. > 0.3 ~ 1,
+    particles.L..median. < 0.3 ~ 0
+  )) %>% 
+  dplyr::select(c(threshold1, OBJECTID))
+
+# Reformat regions based on portion exceedance #
+int_sum <- int_poly %>% 
+  group_by(OBJECTID) %>% 
+  summarize(above = sum(threshold1),
+            total = n(),
+            ratio = above/total)
+
+int_poly <- left_join(int_sum, IR_shp, by = "OBJECTID") %>% 
+  st_as_sf()
 
 
+```
+
+
+### Visualize Regions
+#### Regions with points
+```{r}
+IR_risk_map <- ggmap(sf_basemap_toner_background) + 
+  #add labels for bay
+geom_sf_text(aes(label = name),
+              data = labels,
+              inherit.aes = FALSE,
+             color = "gray10",
+             fontface = "italic",
+             alpha = 0.8) +
+
+  ## Add polygons for IR
+  geom_sf(data = IR_shp,
+          aes(),
+          size = 1,
+          color = "blue",
+          fill = "lightblue",
+          alpha = 0.8,
+          inherit.aes = FALSE) +
+  ##Add monitoring daata
+   geom_sf(data = #sfBay_aligned, 
+           spatial_risk_thresholds,
+           aes(color = threshold, 
+               fill= threshold,
+               shape = threshold), alpha = 0.65,
+           size = 4,
+           inherit.aes = FALSE,
+           #shape = 21,
+           color = "gray40") +
+  #add color scale for thresholds
+  scale_color_manual(name = "Threshold", values = color_scale) +
+  scale_fill_manual(name = "Threshold", values = color_scale) +
+  scale_shape_manual(name = "Threshold", values = shape_scale) +
+  
+  coord_sf(crs = st_crs(4326)) + #force CRS to be 4326
+  annotation_scale(location = "bl") + #add scale
+  annotation_north_arrow(location = "bl", #north arrow
+                         pad_x =  unit(0.5, "in"), pad_y = unit(0.5, "in"), #shift it so it doesn't plot on top of scale bar
+                         style = north_arrow_fancy_orienteering()) + #change style of north arrow
+  xlab("Longitude (NAD83)") +
+  ylab("Latitude (NAD83)")  +
+  theme(
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.position = c(0.81, 0.88),
+        legend.key.size = unit(0.5, 'cm'),
+        legend.title = element_blank())
+
+#save
+ggsave(plot = IR_risk_map,
+       filename = "IR_risk_map.jpeg",
+       path = "output/figures/kooi/", 
+       width = 9, height = 8, units = "in",
+       bg = "white",
+       dpi = 300)
+
+```
+
+#### Regions with ratios
+```{r}
+IR_risk_map_poly <- ggmap(sf_basemap_toner_background) + 
+  coord_sf(crs = st_crs(4326)) + #force CRS to be 4326
+  #add labels for bay
+geom_sf_text(aes(label = name),
+              data = labels,
+              inherit.aes = FALSE,
+             color = "gray80",
+            # fill = "black",
+             fontface = "italic",
+             alpha = 0.8) +
+
+  ## Add polygons for IR
+  geom_sf(data = int_poly,
+          aes(fill = ratio),
+          size = 1,
+          #color = "blue",
+          #fill = "lightblue",
+          alpha = 0.8,
+          inherit.aes = FALSE) +
+  # ##Add monitoring daata
+  #  geom_sf(data = #sfBay_aligned, 
+  #          spatial_risk_thresholds,
+  #          aes(color = threshold, 
+  #              fill= threshold,
+  #              shape = threshold), alpha = 0.65,
+  #          size = 4,
+  #          inherit.aes = FALSE,
+  #          #shape = 21,
+  #          color = "gray40") +
+  #add color scale for thresholds
+  # scale_color_manual(name = "Threshold", values = color_scale) +
+  # scale_fill_manual(name = "Threshold", values = color_scale) +
+  # scale_shape_manual(name = "Threshold", values = shape_scale) +
+  
+  
+  annotation_scale(location = "bl") + #add scale
+  annotation_north_arrow(location = "bl", #north arrow
+                         pad_x =  unit(0.5, "in"), pad_y = unit(0.5, "in"), #shift it so it doesn't plot on top of scale bar
+                         style = north_arrow_fancy_orienteering()) + #change style of north arrow
+  xlab("Longitude (NAD83)") +
+  ylab("Latitude (NAD83)")  +
+  theme(
+        legend.background = element_rect(fill = "white", color = "black"),
+        legend.position = c(0.81, 0.88),
+        legend.key.size = unit(0.5, 'cm'),
+        legend.title = element_blank())
+
+IR_risk_map_poly
+
+#save
+ggsave(plot = IR_risk_map_poly,
+       filename = "IR_risk_map_poly.jpeg",
+       path = "output/figures/kooi/", 
+       width = 9, height = 8, units = "in",
+       bg = "white",
+       dpi = 300)
+
+```
 ```{r eval=FALSE, include=FALSE}
 library(maps); library(ggplot2); library(mapproj)
 states <- map_data("state")
