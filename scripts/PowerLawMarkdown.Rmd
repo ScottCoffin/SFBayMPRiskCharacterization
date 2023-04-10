@@ -325,6 +325,7 @@ df.pwr.plot.valid.final <- rbind(df.pwr.plot.valid.all, df.pwr.plot.valid.tissue
 ```
 
 # Plot results
+## Summary Table
 ```{r}
 # ## given this + facet_wrap, we should be able to make it one figure. 
 df.bs.plot[c("mean.xmin", "sd.xmin", "mean.alpha", "sd.alpha", "xmin.plot")] <- sapply(df.bs.plot[c("mean.xmin", "sd.xmin", "mean.alpha", "sd.alpha", "xmin.plot")], as.character)
@@ -349,7 +350,7 @@ write.csv(df.bs.plot.tissue,
           "output/data/kooi/powerLaws.csv") #be sure to redefine dir
 ```
 
-## Save plots
+## Build plots
 ```{r}
 #join plots from all and tissue
 df.plot.final <- rbind(df.plot.all)#, df.plot.tissue)
@@ -377,13 +378,16 @@ p <- ggplot(df.plot.final, aes(x = x, y = y)) +
   p.theme +
   theme(strip.text.x = element_text(size = 14, face = "bold"),
         axis.text = element_text(size = 10, colour = "black"))
-# save
+p
+```
+
+## Save plots
+```{r}
+# save (be sure to change dir!)
 ggsave(plot = p,
        filename = "powerLaws.jpg",
        path = "output/figures/kooi/", 
        width = 12, height = 9, units = "in",
        bg = "white",
        dpi = 300)
-
-
-p
+```
