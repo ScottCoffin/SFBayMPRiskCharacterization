@@ -1,19 +1,46 @@
-### Aim: 1 PSD per compartment (e.g., stormwater, sediment, surface water, etc.) , with all data combined
-### First extrapolate to largest sample size
-### Second fit (bootstrap) power law distribution
-### This script plots one graph per water type with xmin & slope, both with 2x SD
+---
+title: "Power Law Markdown"
+author: "Scott Coffin"
+date: "04/10/2023"
+output:   
+  html_document:
+    code_folding: hide
+    theme: journal
+    toc: yes
+    toc_float: yes
+    toc_depth: 6
+    number_sections: true
+    includes:
+     # after_body: footer.html
+  word_document:
+    toc: yes
+---
 
-##### THIS SCRIPT IS USED TO DERIVE ALPHA VALUES AND INCLUDES EXAMPLE DATA FROM ZHU ET AL 2020 [https://pubs.acs.org/doi/10.1021/acsestwater.0c00292] #####
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(fig.width=12, fig.height=8, fig.path='Figs/',
+                      warning=FALSE, message=FALSE,time_it = TRUE) #report
+```
 
-rm(list=ls())
+# Introduction
+* Aim: 1 PSD per compartment (e.g., stormwater, sediment, surface water, etc.) , with all data combined
+* First extrapolate to largest sample size
+* Second fit (bootstrap) power law distribution
+* This script plots one graph per water type with xmin & slope, both with 2x SD
 
+NOTE: THIS SCRIPT IS USED TO DERIVE ALPHA VALUES AND INCLUDES EXAMPLE DATA FROM [ZHU ET AL 2020](https://pubs.acs.org/doi/10.1021/acsestwater.0c00292)
 
+## Setup
+```{r}
+rm(list=ls()) #clear cache
+
+#Load libraries
 library(dplyr)
 library(poweRlaw)
 library(ggplot2)
 library(ggpubr)
 library(tidyverse)
 
+## Define themes for plotting
 ### theme plot ####
 p.theme <- theme( 
   axis.text = element_text(size = 10, colour = "black"),
@@ -38,41 +65,50 @@ p.theme <- theme(
   legend.text = element_text(size = 10, colour = " black"),
   legend.title = element_blank()
 )
+```
 
-distributions <- read.csv("output/data/cleanParticleData.csv")
+## Data Import
+Note: Uses example dataset which is  a  cleaned up version from Zhu et al (2020). Get file from [GitHub Repo](https://github.com/ScottCoffin/SFBayMPRiskCharacterization/blob/31fb8d8dd383fca661f983373d8a2abca4f19a50/output/data/cleanParticleData.csv). Replace with own data.
 
+```{r}
+#pull data
+distributions <- read.csv("output/data/cleanParticleData.csv") #make sure to change dir
 
+# Select only sizes with verified minimum size LOQs
 sample_water <- distributions[which(distributions$Size_um <= 5000 &
                                       distributions$lower_size_limit_um >= 125 &
                                       distributions$Size_um >= 125 &
                                       distributions$MorphologicalCategory != "Fiber"),]
+```
 
-
-
+## Prepare data
+```{r}
+# define as factors
 df <- sample_water %>% 
   mutate(matrix = as.factor(case_when(
     matrix == 'samplewater' ~ 'surface water',
     matrix == 'runoff' ~ 'stormwater',
     matrix == 'effluent' ~ 'wastewater',
     matrix == 'tissue' ~ 'tissue',
-    matrix == 'sediment' ~ 'sediment'
-  )
-  )) %>%
+    matrix == 'sediment' ~ 'sediment'))) %>%
   drop_na(matrix) %>% 
   filter(matrix %in% c("tissue",
                        "surface water",
                        "stormwater",
                        "sediment",
-                       "wastewater"
-  )) %>%
+                       "wastewater")) %>%
   droplevels()
 
+#Make empty dataframes
 df.bs.all <- data.frame(gof = numeric(), xmin = numeric(), pars = numeric(),
                         ntail = numeric(),watertype = numeric())
 
 df.plot.all <- data.frame(x = numeric(), y = numeric(), watertype = numeric())
+```
 
-
+# Bootstrapping
+This uses code provided personally from Dr. Merel Kooi, and was used in [Kooi et al.(2021)](https://www.sciencedirect.com/science/article/pii/S0043135421006278?via%3Dihub). See that paper for more details on exactly how this works.
+```{r}
 ## bootstrap the results
 for(i in unique(df$matrix)){
 
@@ -179,6 +215,7 @@ df.bs.plot.all
 
 
 #### Repeat for fish tissue only ###
+### Note: I had to separate this matrix because RStudio was hitting memory limits of my laptop (Corei7, 16 GB ram). If you have a computer with more RAM, it's likely you won't have to do this janky workaround. 
 
 fish_tissue <- distributions %>% 
   filter(Size_um <= 5000,
@@ -285,7 +322,10 @@ df.pwr.plot.final <- rbind(df.pwr.plot.all, df.pwr.plot.tissue)
 df.pwr.plot.valid.final <- rbind(df.pwr.plot.valid.all, df.pwr.plot.valid.tissue)
 
 #lapply(df.bs.plot, class)
+```
 
+# Plot results
+```{r}
 # ## given this + facet_wrap, we should be able to make it one figure. 
 df.bs.plot[c("mean.xmin", "sd.xmin", "mean.alpha", "sd.alpha", "xmin.plot")] <- sapply(df.bs.plot[c("mean.xmin", "sd.xmin", "mean.alpha", "sd.alpha", "xmin.plot")], as.character)
 df.bs.plot[c("mean.xmin", "sd.xmin", "mean.alpha", "sd.alpha", "xmin.plot")] <- sapply(df.bs.plot[c("mean.xmin", "sd.xmin", "mean.alpha", "sd.alpha", "xmin.plot")], as.numeric)
@@ -299,12 +339,18 @@ df.bs.plot.tissue
 
 #join with other matrices
 #df.bs.plot.final <- rbind(df.bs.plot.all, df.bs.plot.tissue)
+```
 
+#Output
+## Save data
+```{r}
 #save
 write.csv(df.bs.plot.tissue,
-          "output/data/kooi/powerLaws.csv")
+          "output/data/kooi/powerLaws.csv") #be sure to redefine dir
+```
 
-
+## Save plots
+```{r}
 #join plots from all and tissue
 df.plot.final <- rbind(df.plot.all)#, df.plot.tissue)
 
